@@ -1,7 +1,7 @@
 import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import { todayISO } from '@/lib/format'
-import type { Evidence } from '@/lib/engine/rules'
+import type { Evidence, EvidenceDatum } from '@/lib/engine/rules'
 
 export type Marketplace = { id: string; code: string; name: string }
 
@@ -93,6 +93,7 @@ export type RecommendationRow = {
   title: string
   issue: string
   evidence: Evidence[]
+  evidence_data: EvidenceDatum[]
   recommendation: string
   reason: string
   objective: string
@@ -102,7 +103,7 @@ export type RecommendationRow = {
 }
 
 const REC_SELECT = `SELECT r.id, r.rule_code, r.kind, r.severity, r.action_type, r.confidence, r.priority_score,
-       r.product_id, r.experiment_id, r.title, r.issue, r.evidence, r.recommendation, r.reason, r.objective,
+       r.product_id, r.experiment_id, r.title, r.issue, r.evidence, r.evidence_data, r.recommendation, r.reason, r.objective,
        r.status, r.updated_at, p.sku
   FROM recommendations r LEFT JOIN products p ON p.id = r.product_id`
 
@@ -427,7 +428,25 @@ export async function getDailySummary(date = todayISO()) {
   )
 }
 
+export async function listDailySummaries(limit = 60) {
+  return query<{ summary_date: string; summary: string | null; revenue: string | null; orders: number | null }>(
+    `SELECT to_char(summary_date,'YYYY-MM-DD') AS summary_date, content->>'summary' AS summary, revenue, orders
+       FROM daily_summaries ORDER BY summary_date DESC LIMIT $1`,
+    [limit],
+  )
+}
+
+export type BriefTone = 'critical' | 'attention' | 'positive' | 'info' | 'neutral'
+export type BriefItem = { text: string; tone: BriefTone; href?: string }
+
+/** Older briefs only have `lines`; the structured sections were added in schema 002. */
 export type DailyBrief = {
   date: string
-  lines: { label: string; text: string; tone: 'critical' | 'attention' | 'positive' | 'info' | 'neutral' }[]
+  lines: { label: string; text: string; tone: BriefTone }[]
+  summary?: string
+  positives?: BriefItem[]
+  risks?: BriefItem[]
+  opportunities?: BriefItem[]
+  actions?: BriefItem[]
+  tests?: BriefItem[]
 }

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { logAudit } from '@/lib/audit'
-import { runEngine } from '@/lib/engine/run'
+import { runAnalysis } from '@/lib/analysis'
 import { disconnect } from '@/lib/integrations/connections'
 import { runSync } from '@/lib/sync/ingest'
 import { syncRange } from '@/lib/sync/range'
@@ -22,7 +22,7 @@ export async function syncNow(_: ActionState, formData: FormData): Promise<Actio
     const result = await runSync(code, range)
     await logAudit({ user, action: 'sync.manual', entityType: 'sync_jobs', newValue: { code, range, result } })
     if (result.status === 'error') return { ok: false, message: result.error }
-    await runEngine(user)
+    await runAnalysis('sync', user)
     revalidatePath('/', 'layout')
     return { ok: true, message: `Sincronizado: ${result.processed} registros (${range.from} a ${range.to}).` }
   } catch (error) {

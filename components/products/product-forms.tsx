@@ -36,7 +36,7 @@ export function ProductForm({ product }: { product?: ProductValues }) {
         <Field label="Categoria" htmlFor="category" hint="Usada para casar regras de taxa por categoria.">
           <Input id="category" name="category" defaultValue={product?.category ?? ''} placeholder="Metais" />
         </Field>
-        <Field label="Classificação" htmlFor="classification">
+        <Field label="Classificação" htmlFor="classification" hint="Define como o motor avalia o produto: janela, ritmo esperado e o que pode recomendar.">
           <Select id="classification" name="classification" defaultValue={product?.classification ?? 'sem_classificacao'}>
             {Object.entries(CLASSIFICATION_LABEL).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>

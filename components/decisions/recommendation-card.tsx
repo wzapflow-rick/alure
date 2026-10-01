@@ -31,6 +31,8 @@ export function RecommendationCard({
 }) {
   const tone = severityTone(rec.severity)
   const evidence = compact ? rec.evidence.slice(0, 2) : rec.evidence
+  const allData = rec.evidence_data ?? []
+  const data = compact ? allData.slice(0, 4) : allData
 
   return (
     <article className="flex flex-col gap-4 px-5 py-5">
@@ -76,6 +78,17 @@ export function RecommendationCard({
           </li>
         ))}
       </ul>
+
+      {data.length ? (
+        <dl className={cn('grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4', rank !== undefined && 'ml-8')}>
+          {data.map((d, i) => (
+            <div key={i} className="flex min-w-0 flex-col gap-0.5">
+              <dt className="truncate text-[11px] text-muted-foreground">{d.label}</dt>
+              <dd className="font-mono text-xs tabular">{d.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
 
       <div className={cn('flex flex-col gap-3 rounded-md bg-surface-2 px-4 py-3', rank !== undefined && 'ml-8')}>
         <div className="flex flex-col gap-0.5">
