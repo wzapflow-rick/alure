@@ -250,6 +250,8 @@ export type MemoryRow = {
   experiment_id: string | null
   status: string
   user_name: string | null
+  review_date: string | null
+  outcome: string | null
 }
 
 export async function listMemory(opts: { productId?: number; limit?: number; status?: string } = {}) {
@@ -264,17 +266,21 @@ export async function listMemory(opts: { productId?: number; limit?: number; sta
     where.push(`sm.status = $${params.length}`)
   }
   params.push(opts.limit ?? 200)
-  return query<MemoryRow>(
+  const sql = (outcomeCols: string) =>
     `SELECT sm.id, to_char(sm.memory_date,'YYYY-MM-DD') AS memory_date, sm.kind, sm.subject, sm.decision,
             sm.reason, sm.expected_result, sm.product_id, p.name AS product_name, sm.experiment_id,
-            sm.status, u.name AS user_name
+            sm.status, u.name AS user_name, ${outcomeCols}
        FROM strategic_memory sm
   LEFT JOIN products p ON p.id = sm.product_id
   LEFT JOIN "user" u ON u.id = sm.user_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY sm.memory_date DESC, sm.id DESC LIMIT $${params.length}`,
-    params,
-  )
+      ORDER BY sm.memory_date DESC, sm.id DESC LIMIT $${params.length}`
+  try {
+    return await query<MemoryRow>(sql(`to_char(sm.review_date,'YYYY-MM-DD') AS review_date, sm.outcome`), params)
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42703') throw e
+    return query<MemoryRow>(sql('NULL::text AS review_date, NULL::text AS outcome'), params)
+  }
 }
 
 export type ProductListRow = {

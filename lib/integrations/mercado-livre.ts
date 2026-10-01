@@ -120,6 +120,7 @@ type MeliItem = {
   price: number
   permalink: string
   status: string
+  available_quantity?: number | null
   seller_custom_field: string | null
   attributes?: { id: string; value_name: string | null }[]
 }
@@ -144,7 +145,7 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
   for (let i = 0; i < ids.length; i += MULTIGET) {
     const batch = ids.slice(i, i + MULTIGET).join(',')
     const res = await apiGet<{ code: number; body: MeliItem }[]>(
-      `/items?ids=${batch}&attributes=id,title,price,permalink,status,seller_custom_field,attributes`,
+      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes`,
       conn.accessToken,
     )
     for (const { code, body } of res) {
@@ -156,6 +157,7 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
         url: body.permalink,
         price: Number(body.price),
         status: body.status === 'active' ? 'active' : body.status === 'paused' ? 'paused' : 'inactive',
+        availableQuantity: typeof body.available_quantity === 'number' ? body.available_quantity : null,
       })
     }
   }

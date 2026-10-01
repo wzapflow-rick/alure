@@ -43,6 +43,8 @@ export type NormalizedListing = {
   url: string | null
   price: number
   status: 'active' | 'paused' | 'inactive'
+  /** Units available for sale; null when the marketplace does not report it. */
+  availableQuantity?: number | null
 }
 
 export type NormalizedDailyMetric = {
