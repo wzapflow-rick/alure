@@ -4,6 +4,7 @@ import { EmptyState, PageHeader, Panel } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
 import { EngineSettingsForm, FeeRuleForm } from '@/components/settings/settings-forms'
 import { toggleFeeRule } from '@/lib/actions/products'
+import { disconnectIntegration, syncNow } from '@/lib/actions/integrations'
 import { ADAPTERS } from '@/lib/integrations/adapters'
 import { CAPABILITY_LABELS, type Capability, type CapabilityStatus } from '@/lib/integrations/types'
 import { formatBRL, formatDate, formatDateTime, formatPct, todayISO } from '@/lib/format'
@@ -19,7 +20,17 @@ const CAP_TONE: Record<CapabilityStatus, Tone> = {
   'NOT IMPLEMENTED': 'neutral',
 }
 
-export default async function SettingsPage() {
+const ML_MESSAGES: Record<string, { tone: Tone; text: string }> = {
+  connected: { tone: 'positive', text: 'Mercado Livre conectado. Clique em "Sincronizar 30 dias" para importar.' },
+  denied: { tone: 'attention', text: 'Autorização cancelada no Mercado Livre.' },
+  invalid_state: { tone: 'critical', text: 'Sessão de autorização inválida ou expirada. Tente conectar de novo.' },
+  missing_env: { tone: 'attention', text: 'Faltam as credenciais MELI_CLIENT_ID, MELI_CLIENT_SECRET e MELI_REDIRECT_URI.' },
+  error: { tone: 'critical', text: 'Falha ao trocar o código por token. Confira o Redirect URI cadastrado no app do Mercado Livre.' },
+}
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string }> }) {
+  const { ml } = await searchParams
+  const mlMessage = ml ? ML_MESSAGES[ml] : null
   const [settings, rules, marketplaces, connections, logs] = await Promise.all([
     getEngineSettings(),
     listFeeRules(),
@@ -95,6 +106,12 @@ export default async function SettingsPage() {
       </Panel>
 
       <Panel title="Integrações">
+        {mlMessage ? (
+          <div role="status" className="flex items-center gap-3 border-b border-border px-5 py-3 text-sm">
+            <Badge tone={mlMessage.tone}>Mercado Livre</Badge>
+            <span>{mlMessage.text}</span>
+          </div>
+        ) : null}
         <div className="grid gap-px bg-border lg:grid-cols-3">
           {ADAPTERS.map((a) => {
             const conn = connections.find((c) => c.code === a.code)
@@ -113,6 +130,23 @@ export default async function SettingsPage() {
                 </p>
                 {missingEnv.length ? (
                   <p className="font-mono text-[11px] leading-relaxed text-attention">Faltam: {missingEnv.join(', ')}</p>
+                ) : null}
+                {a.code === 'mercado_livre' && !missingEnv.length ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    {conn?.status === 'connected' ? (
+                      <>
+                        <InlineAction action={syncNow} fields={{ code: a.code, days: '30' }} label="Sincronizar 30 dias" />
+                        <InlineAction action={disconnectIntegration} fields={{ code: a.code }} label="Desconectar" />
+                      </>
+                    ) : (
+                      <a
+                        href="/api/integrations/mercado-livre/connect"
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+                      >
+                        {conn?.status === 'expired' ? 'Reconectar' : 'Conectar Mercado Livre'}
+                      </a>
+                    )}
+                  </div>
                 ) : null}
                 <ul className="flex flex-col gap-1.5">
                   {(Object.keys(a.capabilities) as Capability[]).map((cap) => {

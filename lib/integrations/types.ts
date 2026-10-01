@@ -36,6 +36,15 @@ export type NormalizedOrder = {
   raw: unknown
 }
 
+export type NormalizedListing = {
+  externalListingId: string
+  sku: string | null
+  title: string
+  url: string | null
+  price: number
+  status: 'active' | 'paused' | 'inactive'
+}
+
 export type NormalizedDailyMetric = {
   externalListingId: string
   date: string
@@ -68,7 +77,7 @@ export interface MarketplaceAdapter {
   role: 'marketplace' | 'operational_hub'
   requiredEnv: string[]
   capabilities: Record<Capability, CapabilityInfo>
-  getAuthorizationUrl?(state: string, redirectUri: string): string
+  fetchListings?(): Promise<NormalizedListing[]>
   fetchOrders(range: DateRange): Promise<NormalizedOrder[]>
   fetchDailyMetrics(range: DateRange): Promise<NormalizedDailyMetric[]>
   fetchAdvertising(range: DateRange): Promise<NormalizedAdMetric[]>

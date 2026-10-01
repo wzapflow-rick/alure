@@ -1,3 +1,5 @@
+import 'server-only'
+import * as meli from '@/lib/integrations/mercado-livre'
 import { NotImplementedError, type MarketplaceAdapter } from '@/lib/integrations/types'
 
 // Capability statuses must only move to VERIFIED after testing against the
@@ -9,22 +11,19 @@ export const mercadoLivreAdapter: MarketplaceAdapter = {
   role: 'marketplace',
   requiredEnv: ['MELI_CLIENT_ID', 'MELI_CLIENT_SECRET', 'MELI_REDIRECT_URI'],
   capabilities: {
-    oauth: { status: 'NEEDS VERIFICATION', note: 'OAuth 2.0 documentado em developers.mercadolivre.com.br. Fluxo ainda não testado.' },
-    orders: { status: 'NEEDS VERIFICATION', note: 'Recurso de pedidos documentado; mapeamento pendente.' },
-    products: { status: 'NEEDS VERIFICATION', note: 'Itens do vendedor; mapeamento pendente.' },
-    listings: { status: 'NEEDS VERIFICATION', note: 'Status e preço de anúncios; pendente.' },
-    traffic: { status: 'NEEDS VERIFICATION', note: 'Visitas por item; granularidade e limites a confirmar.' },
-    advertising: { status: 'NEEDS VERIFICATION', note: 'Product Ads: métricas disponíveis por API a confirmar.' },
+    oauth: { status: 'NEEDS VERIFICATION', note: 'Implementado (authorization code + refresh token, state anti-CSRF). Falta testar com a conta real.' },
+    orders: { status: 'NEEDS VERIFICATION', note: 'Implementado via /orders/search. Vendas diárias são recalculadas a partir dos pedidos pagos.' },
+    products: { status: 'NOT IMPLEMENTED', note: 'Produtos são cadastrados no ALURE; anúncios são vinculados por SKU.' },
+    listings: { status: 'NEEDS VERIFICATION', note: 'Implementado: anúncios do vendedor vinculados ao produto pelo SKU, com histórico de preço.' },
+    traffic: { status: 'NEEDS VERIFICATION', note: 'Implementado via /items/{id}/visits/time_window (diário, máx. 150 dias).' },
+    advertising: { status: 'NEEDS VERIFICATION', note: 'Product Ads: API de métricas mudou recentemente. Não implementado até confirmar.' },
     promotions: { status: 'NEEDS VERIFICATION', note: 'Campanhas/promoções do vendedor a confirmar.' },
     inventory: { status: 'NEEDS VERIFICATION', note: 'Estoque disponível por item a confirmar.' },
     fees: { status: 'NEEDS VERIFICATION', note: 'Custos de venda por item a confirmar. Até lá, usar regras de taxa manuais.' },
   },
-  async fetchOrders() {
-    throw new NotImplementedError('Mercado Livre', 'orders')
-  },
-  async fetchDailyMetrics() {
-    throw new NotImplementedError('Mercado Livre', 'traffic')
-  },
+  fetchListings: () => meli.fetchListings(),
+  fetchOrders: (range) => meli.fetchOrders(range),
+  fetchDailyMetrics: (range) => meli.fetchDailyVisits(range),
   async fetchAdvertising() {
     throw new NotImplementedError('Mercado Livre', 'advertising')
   },
