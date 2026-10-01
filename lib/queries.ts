@@ -2,6 +2,7 @@ import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import { todayISO } from '@/lib/format'
 import type { Evidence, EvidenceDatum } from '@/lib/engine/rules'
+import type { AIBriefBlock } from '@/lib/ai/schemas'
 
 export type Marketplace = { id: string; code: string; name: string }
 
@@ -303,6 +304,15 @@ export async function listProducts() {
   )
 }
 
+export async function listProductIndex() {
+  return query<{ id: string; sku: string; name: string; average_cost: string | null }>(
+    `SELECT p.id, p.sku, p.name, pc.average_cost
+       FROM products p LEFT JOIN product_costs pc ON pc.product_id = p.id
+      WHERE p.active
+      ORDER BY p.sku`,
+  )
+}
+
 export async function getProduct(id: number) {
   return queryOne<{
     id: string
@@ -449,4 +459,5 @@ export type DailyBrief = {
   opportunities?: BriefItem[]
   actions?: BriefItem[]
   tests?: BriefItem[]
+  ai?: AIBriefBlock
 }

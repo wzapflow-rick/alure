@@ -10,6 +10,7 @@
     "verify:db": "tsx --conditions=react-server scripts/verify-postgres.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.83",
     "@ai-sdk/react": "^4.0.129",
     "ai": "^7.0.126",
     "better-auth": "^1.7.7",

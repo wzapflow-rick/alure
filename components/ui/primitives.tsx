@@ -74,14 +74,16 @@ export function Panel({
   action,
   children,
   className,
+  id,
 }: {
   title?: React.ReactNode
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
+  id?: string
 }) {
   return (
-    <section className={cn('rounded-lg border border-border bg-surface', className)}>
+    <section id={id} className={cn('rounded-lg border border-border bg-surface', className)}>
       {title ? (
         <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
           <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{title}</h2>

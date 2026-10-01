@@ -205,24 +205,51 @@ export async function fetchOrders(range: DateRange): Promise<NormalizedOrder[]> 
   return orders
 }
 
-/** Daily visits per linked listing. The API serves one item per call, max 150 days. */
-export async function fetchDailyVisits(range: DateRange): Promise<NormalizedDailyMetric[]> {
+const VISITS_DELAY_MS = 150
+const MAX_CONSECUTIVE_RATE_LIMITS = 3
+
+/**
+ * Daily visits per listing (one item per call, max 150 days). Only listings that are active
+ * or sold in the range are fetched; a rate limit stops the loop and returns what was read,
+ * so traffic never blocks orders from being saved.
+ */
+export async function fetchDailyVisits(range: DateRange): Promise<NormalizedDailyMetric[] & { warning?: string }> {
   const conn = await connection()
   const days = Math.min(150, Math.max(1, Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000) + 1))
   const { rows } = await pool.query<{ external_id: string }>(
-    `SELECT external_id FROM product_channels
-      WHERE marketplace_id = $1 AND external_id IS NOT NULL AND status <> 'inactive'`,
-    [conn.marketplaceId],
+    `SELECT pc.external_id FROM product_channels pc
+      WHERE pc.marketplace_id = $1 AND pc.external_id IS NOT NULL
+        AND (pc.status = 'active' OR EXISTS (
+              SELECT 1 FROM order_items oi JOIN orders o ON o.id = oi.order_id
+               WHERE o.marketplace_id = pc.marketplace_id
+                 AND split_part(oi.external_item_id, ':', 1) = pc.external_id
+                 AND (o.order_date AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2::date AND $3::date))
+      ORDER BY (pc.status = 'active') DESC, pc.id`,
+    [conn.marketplaceId, range.from, range.to],
   )
   const metrics: NormalizedDailyMetric[] = []
+  let fetched = 0
+  let failed = 0
+  let consecutiveRateLimits = 0
   for (const { external_id } of rows) {
-    const res = await apiGet<{ results: { date: string; total: number }[] }>(
-      `/items/${encodeURIComponent(external_id)}/visits/time_window?last=${days}&unit=day&ending=${range.to}`,
-      conn.accessToken,
-    )
-    for (const r of res.results ?? []) {
-      metrics.push({ externalListingId: external_id, date: r.date.slice(0, 10), visits: Number(r.total) })
+    try {
+      const res = await apiGet<{ results: { date: string; total: number }[] }>(
+        `/items/${encodeURIComponent(external_id)}/visits/time_window?last=${days}&unit=day&ending=${range.to}`,
+        conn.accessToken,
+      )
+      for (const r of res.results ?? []) {
+        metrics.push({ externalListingId: external_id, date: r.date.slice(0, 10), visits: Number(r.total) })
+      }
+      fetched++
+      consecutiveRateLimits = 0
+    } catch (error) {
+      failed++
+      if ((error as Error).message.includes('limite de requisições') && ++consecutiveRateLimits >= MAX_CONSECUTIVE_RATE_LIMITS) break
     }
+    await new Promise((r) => setTimeout(r, VISITS_DELAY_MS))
   }
-  return metrics
+  const missing = rows.length - fetched
+  return Object.assign(metrics, {
+    warning: missing > 0 ? `Visitas parciais: ${fetched} de ${rows.length} anúncios lidos (${failed} falhas, limite de requisições do Mercado Livre).` : undefined,
+  })
 }

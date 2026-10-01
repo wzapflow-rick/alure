@@ -1,6 +1,7 @@
 import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import { generateDailyBrief } from '@/lib/brief'
+import { runDailyAIAnalysis } from '@/lib/ai/daily-analysis'
 import { runEngine, type ChannelHealth } from '@/lib/engine/run'
 import { todayISO } from '@/lib/format'
 import type { SessionUser } from '@/lib/session'
@@ -50,7 +51,9 @@ export async function runAnalysis(trigger: AnalysisTrigger, user: SessionUser | 
               created = $4, resolved = $5, protected_by_tests = $6, health = $7 WHERE id = $1`,
       [runId, result.channelsAnalyzed, result.signals, result.created, result.resolved, result.protectedByTests, JSON.stringify(result.health)],
     )
-    return { skipped: false as const, runId, ...result }
+    // The deterministic run is already persisted; the AI reading is a layer on top and never fails it.
+    const ai = await runDailyAIAnalysis({ analysisRunId: runId, userId: user?.id ?? null, force: trigger === 'manual' })
+    return { skipped: false as const, runId, ai: ai.status, ...result }
   } catch (error) {
     await query(`UPDATE analysis_runs SET status = 'error', finished_at = now(), error = $2 WHERE id = $1`, [
       runId,

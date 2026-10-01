@@ -8,9 +8,13 @@ import type { SessionUser } from '@/lib/session'
 import {
   applyExperimentGuard,
   baselineFor,
+  CATEGORY_LABEL,
   evaluateChannel,
   experimentReviewSignal,
+  isFreezeMemory,
+  ruleMeta,
   type ActiveExperiment,
+  type StrategicMemory,
   type ChannelStats,
   type Classification,
   type Signal,
@@ -37,6 +41,7 @@ type ChannelRow = {
   revenue_cur: string
   revenue_prev: string
   orders_base: string
+  revenue_base: string
   last_sale_date: string | null
   sale_days_90: string
   first_traffic_date: string | null
@@ -61,10 +66,10 @@ export async function loadChannelStats(today: string, windowDays: number, target
             p.name AS product_name, p.sku, p.category, p.classification,
             pc.current_price, pc.ads_cost_pct, pc.seller_discount, pcs.average_cost,
             win.w AS window_days, win.base_len,
-            to_char(s.first_date,'YYYY-MM-DD') AS first_date,
+            to_char(COALESCE(cov.first_date, s.first_date),'YYYY-MM-DD') AS first_date,
             COALESCE(s.orders_cur,0) AS orders_cur, COALESCE(s.orders_prev,0) AS orders_prev,
             COALESCE(s.revenue_cur,0) AS revenue_cur, COALESCE(s.revenue_prev,0) AS revenue_prev,
-            COALESCE(s.orders_base,0) AS orders_base,
+            COALESCE(s.orders_base,0) AS orders_base, COALESCE(s.revenue_base,0) AS revenue_base,
             to_char(s.last_sale_date,'YYYY-MM-DD') AS last_sale_date,
             COALESCE(s.sale_days_90,0) AS sale_days_90,
             to_char(t.first_date,'YYYY-MM-DD') AS first_traffic_date,
@@ -86,11 +91,19 @@ export async function loadChannelStats(today: string, windowDays: number, target
                SUM(revenue) FILTER (WHERE metric_date >  $1::date - win.w)                                         AS revenue_cur,
                SUM(revenue) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - 2*win.w)    AS revenue_prev,
                SUM(orders)  FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS orders_base,
+               SUM(revenue) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS revenue_base,
                MAX(metric_date) FILTER (WHERE orders > 0)                                                          AS last_sale_date,
                COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 90)                                  AS sale_days_90
           FROM sales_metrics
          WHERE product_channel_id = pc.id AND metric_date <= $1::date
        ) s ON true
+  -- History is what the marketplace sync covers, not the listing's first sale: a listing that
+  -- never sold inside synced history has zero sales, not missing data.
+  LEFT JOIN LATERAL (
+        SELECT MIN(sm.metric_date) AS first_date
+          FROM sales_metrics sm JOIN product_channels pc2 ON pc2.id = sm.product_channel_id
+         WHERE pc2.marketplace_id = pc.marketplace_id AND sm.metric_date <= $1::date
+       ) cov ON true
   LEFT JOIN LATERAL (
         SELECT MIN(metric_date) AS first_date,
                SUM(visits) FILTER (WHERE metric_date >  $1::date - win.w)                                      AS visits_cur,
@@ -133,6 +146,7 @@ export async function loadChannelStats(today: string, windowDays: number, target
       revenueCur: Number(r.revenue_cur),
       revenuePrev: Number(r.revenue_prev),
       ordersBase: Number(r.orders_base),
+      revenueBase: Number(r.revenue_base),
       baseDays: coverage(r.first_date, w, baseLen, today),
       visitsCur: hasTraffic ? Number(r.visits_cur ?? 0) : null,
       visitsPrev: hasTraffic ? Number(r.visits_prev ?? 0) : null,
@@ -310,26 +324,159 @@ async function computeHealth(
   })
 }
 
+async function loadMemories(): Promise<StrategicMemory[]> {
+  const rows = await query<{ id: string; product_id: string; kind: string; subject: string; decision: string }>(
+    `SELECT id, product_id, kind, subject, decision FROM strategic_memory
+      WHERE status = 'active' AND product_id IS NOT NULL ORDER BY memory_date DESC, id DESC`,
+  )
+  return rows.map((r) => ({ id: Number(r.id), productId: Number(r.product_id), kind: r.kind, subject: r.subject, decision: r.decision }))
+}
+
+/** Registered decisions travel with every signal of the product; a freeze holds commercial changes. */
+function applyMemoryGuard(signals: Signal[], memories: StrategicMemory[]) {
+  let held = 0
+  const out = signals.map((sg) => {
+    const mine = memories.filter((m) => m.productId === sg.productId)
+    if (!mine.length) return sg
+    const withMemory: Signal = {
+      ...sg,
+      evidence: [...sg.evidence, ...mine.slice(0, 2).map((m) => ({ label: 'FATO' as const, text: `Memória estratégica #${m.id}: ${m.decision}` }))],
+    }
+    const freeze = mine.find(isFreezeMemory)
+    if (!freeze || !sg.suggestsChange || sg.severity === 'critical' || sg.kind === 'no_action') return withMemory
+    held++
+    return {
+      ...withMemory,
+      trace: [...(sg.trace ?? []), `Retido pela memória estratégica #${freeze.id}; ação original: ${sg.recommendation}`],
+      kind: 'no_action' as const,
+      severity: 'info' as const,
+      actionType: 'information' as const,
+      issue: `Sinal registrado, mas há uma decisão para não alterar este produto.`,
+      recommendation: 'Respeitar a decisão registrada; reavaliar quando ela for revista.',
+      reason: `Decisão #${freeze.id}: ${freeze.decision}`,
+      suggestsChange: false,
+      alert: undefined,
+    }
+  })
+  return { signals: out, heldByMemory: held }
+}
+
+function addDays(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function shortDate(iso: string) {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+}
+
+/** Appends MÉTRICA, PERÍODO and sources so every card answers "how will we know it worked". */
+function enrich(sg: Signal, today: string, windowDays: number, health: ChannelHealth[]): Signal {
+  const meta = ruleMeta(sg.ruleCode)
+  const mk = health.find((h) => h.marketplaceId === sg.marketplaceId)
+  const from = addDays(today, -(windowDays - 1))
+  return {
+    ...sg,
+    data: [
+      ...sg.data,
+      { label: 'Categoria', value: CATEGORY_LABEL[meta.category] },
+      { label: 'Métrica de acompanhamento', value: meta.metric },
+      ...(meta.reviewDays > 0 ? [{ label: 'Revisar em', value: `${shortDate(addDays(today, meta.reviewDays))} (${meta.reviewDays} dias)` }] : []),
+      { label: 'Período analisado', value: `${shortDate(from)} a ${shortDate(today)}` },
+      { label: 'Fonte', value: mk ? `${mk.name} · API (dados reais)` : 'ALURE' },
+      ...(mk?.lastSuccessfulSync
+        ? [{ label: 'Última sincronização', value: new Date(mk.lastSuccessfulSync).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }) }]
+        : []),
+    ],
+  }
+}
+
+export type EngineOverview = {
+  marketplaceId: number
+  name: string
+  windowDays: number
+  ordersCur: number
+  ordersPrev: number
+  revenueCur: number
+  revenuePrev: number
+  visitsCur: number | null
+  visitsPrev: number | null
+  channelsWithTraffic: number
+  channelsWithSales: number
+}
+
+function buildOverview(channels: Awaited<ReturnType<typeof loadChannelStats>>, windowDays: number): EngineOverview[] {
+  const byMk = new Map<number, EngineOverview>()
+  for (const c of channels) {
+    if (c.windowDays !== windowDays) continue
+    const o = byMk.get(c.marketplaceId) ?? {
+      marketplaceId: c.marketplaceId, name: c.marketplaceName, windowDays,
+      ordersCur: 0, ordersPrev: 0, revenueCur: 0, revenuePrev: 0, visitsCur: null, visitsPrev: null,
+      channelsWithTraffic: 0, channelsWithSales: 0,
+    }
+    o.ordersCur += c.ordersCur
+    o.ordersPrev += c.ordersPrev
+    o.revenueCur += c.revenueCur
+    o.revenuePrev += c.revenuePrev
+    if (c.ordersCur + c.ordersPrev > 0) o.channelsWithSales++
+    if (c.visitsCur !== null) {
+      o.channelsWithTraffic++
+      o.visitsCur = (o.visitsCur ?? 0) + c.visitsCur
+      o.visitsPrev = (o.visitsPrev ?? 0) + (c.visitsPrev ?? 0)
+    }
+    byMk.set(c.marketplaceId, o)
+  }
+  return [...byMk.values()]
+}
+
 export async function runEngine(user: SessionUser | null, analysisRunId: number | null = null) {
   const today = todayISO()
   const settings = await getEngineSettings()
-  const [channels, experiments] = await Promise.all([
+  const [channels, experiments, memories] = await Promise.all([
     loadChannelStats(today, settings.windowDays, settings.targetMarginPct),
     loadExperiments(today),
+    loadMemories(),
   ])
 
-  const guarded = applyExperimentGuard(
-    channels.flatMap((c) => evaluateChannel(c, settings, today)),
-    experiments,
-    today,
-  )
-  const signals: Signal[] = guarded.signals
+  const raw = channels.flatMap((c) => evaluateChannel(c, settings, today))
+  const guarded = applyExperimentGuard(raw, experiments, today)
+  const remembered = applyMemoryGuard(guarded.signals, memories)
+  const preliminary: Signal[] = remembered.signals
   for (const exp of experiments) {
     const s = experimentReviewSignal(exp, today)
-    if (s) signals.push(s)
+    if (s) preliminary.push(s)
   }
 
-  const health = await computeHealth(channels, signals, settings)
+  const health = await computeHealth(channels, preliminary, settings)
+  const signals = preliminary.map((sg) => enrich(sg, today, settings.windowDays, health))
+  const overview = buildOverview(channels, settings.windowDays)
+
+  const rulesFired: Record<string, number> = {}
+  for (const sg of raw) rulesFired[sg.ruleCode] = (rulesFired[sg.ruleCode] ?? 0) + 1
+  const ranked = signals.filter((sg) => sg.kind === 'priority' || sg.kind === 'test_review').sort((a, b) => b.score - a.score)
+  const trace = {
+    date: today,
+    settings,
+    inputs: {
+      channels: channels.length,
+      withSales: channels.filter((c) => c.ordersCur + c.ordersPrev + c.ordersBase > 0).length,
+      withTraffic: channels.filter((c) => c.visitsCur !== null).length,
+      historyDays: Math.max(0, ...channels.map((c) => c.historyDays)),
+      missingCost: channels.filter((c) => c.pricing.status === 'missing_cost').length,
+      missingFee: channels.filter((c) => c.pricing.status === 'missing_fee_rule').length,
+      experiments: experiments.length,
+      memories: memories.length,
+    },
+    overview,
+    rulesFired,
+    heldByTests: guarded.protectedCount,
+    heldByMemory: remembered.heldByMemory,
+    chosen: ranked.slice(0, 3).map((sg) => ({ fingerprint: sg.fingerprint, rule: sg.ruleCode, score: sg.score, title: sg.title })),
+    transformed: signals
+      .filter((sg) => sg.trace?.length)
+      .map((sg) => ({ fingerprint: sg.fingerprint, rule: sg.ruleCode, steps: sg.trace })),
+  }
 
   const summary = await withTransaction(async (client) => {
     await client.query(
@@ -410,13 +557,20 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       created,
       resolved: resolved.rowCount ?? 0,
       protectedByTests: guarded.protectedCount,
+      protectedByMemory: remembered.heldByMemory,
     }
     await logAudit(
-      { user, action: 'engine.run', entityType: 'recommendations', entityId: analysisRunId ? String(analysisRunId) : undefined, newValue: result },
+      {
+        user,
+        action: 'engine.run',
+        entityType: 'recommendations',
+        entityId: analysisRunId ? String(analysisRunId) : undefined,
+        newValue: { ...result, trace },
+      },
       client,
     )
     return result
   })
 
-  return { ...summary, health }
+  return { ...summary, health, overview }
 }

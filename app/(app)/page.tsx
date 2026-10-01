@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { after } from 'next/server'
 import { ArrowUpRight } from 'lucide-react'
 import { DailyBriefPanel } from '@/components/command/daily-brief'
+import { AIReadingPanel } from '@/components/command/ai-reading'
 import { getLatestAnalysis, getRunningAnalysis, isStale, runAnalysis } from '@/lib/analysis'
 import { Badge, EXPERIMENT_STATUS_LABEL, VARIABLE_LABEL, experimentTone } from '@/components/ui/badges'
 import { EmptyState, Panel } from '@/components/ui/primitives'
@@ -15,8 +16,10 @@ import {
   getTodayKpis,
   listExperiments,
   listMemory,
+  listProductIndex,
   listRecommendations,
 } from '@/lib/queries'
+import { ProductQuickSearch } from '@/components/products/product-search'
 import { getEngineSettings } from '@/lib/settings'
 import { getSessionUser } from '@/lib/session'
 import type { CommercialStatus } from '@/lib/engine/run'
@@ -49,7 +52,7 @@ export default async function CommandPage() {
   }
   const analyzing = Boolean(running) || stale
 
-  const [kpis, brief, connections, channels, priorities, opportunities, experiments, memory] = await Promise.all([
+  const [kpis, brief, connections, channels, priorities, opportunities, experiments, memory, productIndex] = await Promise.all([
     getTodayKpis(),
     getDailySummary(),
     getConnections(),
@@ -58,6 +61,7 @@ export default async function CommandPage() {
     listRecommendations({ kinds: ['opportunity'], statuses: ['open'], limit: 3 }),
     listExperiments({ statuses: ['ready_for_review', 'in_progress'] }),
     listMemory({ limit: 4, status: 'active' }),
+    listProductIndex(),
   ])
 
   const progress = settings.dailyTarget > 0 ? Math.min(100, (kpis.revenue / settings.dailyTarget) * 100) : 0
@@ -75,7 +79,11 @@ export default async function CommandPage() {
         <RunEngineButton />
       </header>
 
+      <ProductQuickSearch products={productIndex} />
+
       <DailyBriefPanel brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
+
+      <AIReadingPanel block={brief?.content?.ai} />
 
       <section aria-label="Indicadores de hoje" className="grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
         <div className="flex flex-col gap-3 bg-surface px-5 py-5 md:col-span-2">
