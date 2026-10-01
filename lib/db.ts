@@ -24,7 +24,10 @@ function createPool() {
     // serverless instance keeps a small pool so many instances can coexist.
     max: 3,
     idleTimeoutMillis: 5_000,
-    connectionTimeoutMillis: 5_000,
+    // Covers both the TCP handshake and waiting in line for a free pool slot:
+    // pages fire up to 8 parallel queries against max 3, and a running sync
+    // holds one slot, so 5s was too tight over the VPS link.
+    connectionTimeoutMillis: 15_000,
     allowExitOnIdle: true,
   })
 }
@@ -61,7 +64,14 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
 }
 
 export async function withTransaction<T>(fn: (client: import('pg').PoolClient) => Promise<T>) {
-  const client = await pool.connect()
+  let client: import('pg').PoolClient
+  try {
+    client = await pool.connect()
+  } catch (error) {
+    if (!isConnectionError(error)) throw error
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    client = await pool.connect()
+  }
   try {
     await client.query('BEGIN')
     const result = await fn(client)
