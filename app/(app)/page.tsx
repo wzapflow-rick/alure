@@ -16,8 +16,10 @@ import {
   getTodayKpis,
   listExperiments,
   listMemory,
+  listProductIndex,
   listRecommendations,
 } from '@/lib/queries'
+import { ProductQuickSearch } from '@/components/products/product-search'
 import { getEngineSettings } from '@/lib/settings'
 import { getSessionUser } from '@/lib/session'
 import type { CommercialStatus } from '@/lib/engine/run'
@@ -50,7 +52,7 @@ export default async function CommandPage() {
   }
   const analyzing = Boolean(running) || stale
 
-  const [kpis, brief, connections, channels, priorities, opportunities, experiments, memory] = await Promise.all([
+  const [kpis, brief, connections, channels, priorities, opportunities, experiments, memory, productIndex] = await Promise.all([
     getTodayKpis(),
     getDailySummary(),
     getConnections(),
@@ -59,6 +61,7 @@ export default async function CommandPage() {
     listRecommendations({ kinds: ['opportunity'], statuses: ['open'], limit: 3 }),
     listExperiments({ statuses: ['ready_for_review', 'in_progress'] }),
     listMemory({ limit: 4, status: 'active' }),
+    listProductIndex(),
   ])
 
   const progress = settings.dailyTarget > 0 ? Math.min(100, (kpis.revenue / settings.dailyTarget) * 100) : 0
@@ -75,6 +78,8 @@ export default async function CommandPage() {
         </div>
         <RunEngineButton />
       </header>
+
+      <ProductQuickSearch products={productIndex} />
 
       <DailyBriefPanel brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
 

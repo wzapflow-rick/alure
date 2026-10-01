@@ -141,7 +141,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       ) : null}
 
       <div className="grid gap-8 lg:grid-cols-2">
-        <Panel title={`Custo · média ponderada ${cost !== null ? formatBRL(cost) : '—'}`}>
+        <Panel
+          title={`Custo · média ponderada ${cost !== null ? formatBRL(cost) : '—'}`}
+          className="scroll-mt-6"
+          id="custo"
+        >
           <div className="flex flex-col gap-6 px-5 py-5">
             <CostLotForm productId={product.id} today={todayISO()} />
             {lots.length ? (

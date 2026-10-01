@@ -33,6 +33,7 @@ import {
 } from '@/lib/assistant/store'
 
 import { prepareModel, recordUsage } from '@/lib/ai/orchestrator'
+import { describeAIError } from '@/lib/ai/user-error'
 
 export const maxDuration = 60
 
@@ -333,27 +334,31 @@ export async function POST(req: Request) {
   if (!text) return new Response('Mensagem vazia', { status: 400 })
   const userMessage: UIMessage = { id: message.id, role: 'user', parts: [{ type: 'text', text }] }
 
-  if (!(await isAssistantStoreReady())) {
-    return new Response('Rode o script db/003_assistant_memory.sql no banco para ativar a memória do assistente.', {
+  const prepared = prepareModel('ASSISTANT_QUERY')
+  if (!prepared) {
+    return new Response('IA não configurada neste deploy. Configure OPENAI_API_KEY na Vercel e publique de novo.', {
       status: 503,
     })
   }
-  if (!(await ensureConversation(user.id, conversationId, text))) {
-    return new Response('Conversa não encontrada', { status: 404 })
-  }
 
-  const history = (await getConversationMessages(user.id, conversationId, 40)) ?? []
-  await saveMessage(conversationId, userMessage)
-  const messages = [...history.filter((m) => m.id !== userMessage.id), userMessage]
-
-  const dbContext = await buildDatabaseContext(user, conversationId)
-
-  const prepared = prepareModel('ASSISTANT_QUERY')
-  if (!prepared) {
-    return Response.json(
-      { error: 'IA não configurada. Configure OPENAI_API_KEY nas variáveis de ambiente da Vercel.' },
-      { status: 503 },
-    )
+  let messages: UIMessage[]
+  let dbContext: string
+  try {
+    if (!(await isAssistantStoreReady())) {
+      return new Response('Rode o script db/003_assistant_memory.sql no banco para ativar a memória do assistente.', {
+        status: 503,
+      })
+    }
+    if (!(await ensureConversation(user.id, conversationId, text))) {
+      return new Response('Conversa não encontrada', { status: 404 })
+    }
+    const history = (await getConversationMessages(user.id, conversationId, 40)) ?? []
+    await saveMessage(conversationId, userMessage)
+    messages = [...history.filter((m) => m.id !== userMessage.id), userMessage]
+    dbContext = await buildDatabaseContext(user, conversationId)
+  } catch (err) {
+    console.error('[alure] assistant setup failed:', err)
+    return new Response(describeAIError(err), { status: 503 })
   }
   const startedAt = Date.now()
   const result = streamText({
@@ -369,10 +374,11 @@ export async function POST(req: Request) {
         providerMetadata: event.providerMetadata,
         ok: true,
         userId: user.id,
-      })
+      }).catch(() => undefined)
     },
     onError: async ({ error }) => {
-      await recordUsage(prepared, { startedAt, ok: false, error, userId: user.id })
+      console.error('[alure] assistant stream failed:', error)
+      await recordUsage(prepared, { startedAt, ok: false, error, userId: user.id }).catch(() => undefined)
     },
   })
 
@@ -380,6 +386,7 @@ export async function POST(req: Request) {
     stream: toUIMessageStream({
       stream: result.stream,
       originalMessages: messages,
+      onError: describeAIError,
       generateMessageId: () => crypto.randomUUID(),
       onEnd: async ({ responseMessage }) => {
         try {
