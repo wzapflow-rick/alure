@@ -16,6 +16,11 @@
   --positive: #5fb88a;
   --info: #7f93b8;
   --radius: 0.5rem;
+  --brand-navy: #061628;
+  --brand-deep: #020d1a;
+  --brand-line: #13304a;
+  --brand-teal: #22b4cf;
+  --brand-teal-foreground: #021018;
 }
 
 @theme inline {
@@ -31,6 +36,12 @@
   --color-attention: var(--attention);
   --color-positive: var(--positive);
   --color-info: var(--info);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-line: var(--brand-line);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-teal-foreground: var(--brand-teal-foreground);
+  --animate-rise: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
@@ -54,6 +65,23 @@
   select,
   textarea {
     color-scheme: dark;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
   }
 }
 
