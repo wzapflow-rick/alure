@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    // Revisiting a page within 30s is instant; server actions still invalidate via revalidatePath.
+    staleTimes: { dynamic: 30 },
+  },
 };
 
 export default nextConfig;
