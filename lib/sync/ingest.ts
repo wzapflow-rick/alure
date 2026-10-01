@@ -85,8 +85,20 @@ export async function upsertListing(client: PoolClient, marketplaceId: number, l
     return true
   }
 
-  if (!l.sku) return false
-  const product = await client.query<{ id: string }>('SELECT id FROM products WHERE lower(sku) = lower($1)', [l.sku])
+  // The marketplace is the source of truth for the catalog: unknown listings become products,
+  // keyed by the seller SKU (or the listing id when the seller left SKU empty).
+  const sku = l.sku?.trim() || `ML-${l.externalListingId}`
+  const product = await client.query<{ id: string }>(
+    `WITH found AS (SELECT id FROM products WHERE lower(sku) = lower($1) LIMIT 1),
+          created AS (
+            INSERT INTO products (sku, name)
+            SELECT $1, $2 WHERE NOT EXISTS (SELECT 1 FROM found)
+            ON CONFLICT (sku) DO NOTHING
+            RETURNING id
+          )
+     SELECT id FROM found UNION ALL SELECT id FROM created`,
+    [sku, l.title],
+  )
   const productId = product.rows[0]?.id
   if (!productId) return false
 
@@ -101,6 +113,28 @@ export async function upsertListing(client: PoolClient, marketplaceId: number, l
     [inserted.rows[0].id, l.price],
   )
   return true
+}
+
+type RawOrderItem = { item?: { id?: string; title?: string } }
+
+function listingsFromOrders(orders: NormalizedOrder[]): NormalizedListing[] {
+  const byId = new Map<string, NormalizedListing>()
+  for (const order of orders) {
+    const rawItems = ((order.raw as { order_items?: RawOrderItem[] })?.order_items ?? [])
+    for (const item of order.items) {
+      if (!item.externalListingId || byId.has(item.externalListingId)) continue
+      const title = rawItems.find((r) => r.item?.id === item.externalListingId)?.item?.title
+      byId.set(item.externalListingId, {
+        externalListingId: item.externalListingId,
+        sku: item.sku,
+        title: title ?? item.externalListingId,
+        url: null,
+        price: item.unitPrice,
+        status: 'inactive',
+      })
+    }
+  }
+  return [...byId.values()]
 }
 
 const PAID_STATUSES = ['paid', 'partially_paid', 'partially_refunded']
@@ -158,7 +192,15 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
       })
     }
 
-    const [orders, metrics] = await Promise.all([adapter.fetchOrders(range), adapter.fetchDailyMetrics(range)])
+    const orders = await adapter.fetchOrders(range)
+    // Sold listings may be closed and absent from the listings search; link them from the order itself.
+    await withTransaction(async (client) => {
+      for (const listing of listingsFromOrders(orders)) {
+        await upsertListing(client, marketplaceId, listing)
+      }
+    })
+    // Visits are fetched per linked listing, so this must run after linking.
+    const metrics = await adapter.fetchDailyMetrics(range)
     await withTransaction(async (client) => {
       for (const o of orders) {
         await upsertOrder(client, marketplaceId, adapter.code, o)
