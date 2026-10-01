@@ -112,7 +112,7 @@ export function RecommendationCard({
               />
               <InlineAction
                 action={updateRecommendation}
-                fields={{ id: rec.id, status: 'accepted' }}
+                fields={{ id: rec.id, status: 'approved' }}
                 variant="secondary"
                 label={
                   <>

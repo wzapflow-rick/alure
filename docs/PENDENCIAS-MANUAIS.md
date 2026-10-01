@@ -100,6 +100,10 @@ Confirme que estas variáveis estão no ambiente **Production** da Vercel:
 - `TOKEN_ENCRYPTION_KEY`: **não troque depois de conectar os marketplaces**. Os tokens salvos ficariam ilegíveis e seria preciso conectar tudo de novo.
 - `ALURE_ALLOWED_EMAILS`: e-mails que podem entrar, separados por vírgula
 
+**No v0 (Settings → Vars):** a `DATABASE_URL` do preview do v0 ainda aponta para `151.243.24.50:5432` (porta fechada). Troque pela mesma URL do PgBouncer usada em produção (`db-integrator.wzapflow.com.br:5433/alure?sslmode=require`). Sem isso, o preview do v0 não conecta no banco.
+
+**Teste de persistência:** `pnpm verify:db` roda um teste ponta a ponta no banco real (produto, custos, histórico, motor de preços, recomendações, decisões e experimentos). Ele cria registros marcados como `DEMO-TESTE-…` e apaga tudo no final.
+
 ## 9. Servidor (VPS), já concluído
 
 - O PgBouncer, na porta 5433 com SSL, tem o banco `alure` e o usuário `alure` cadastrados.

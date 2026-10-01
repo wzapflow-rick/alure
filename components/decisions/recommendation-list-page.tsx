@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 const TABS = [
   { key: 'open', label: 'Abertas', statuses: ['open'] },
-  { key: 'accepted', label: 'Aceitas', statuses: ['accepted'] },
+  { key: 'approved', label: 'Aceitas', statuses: ['approved'] },
   { key: 'dismissed', label: 'Descartadas', statuses: ['dismissed'] },
   { key: 'resolved', label: 'Resolvidas', statuses: ['resolved'] },
 ]
