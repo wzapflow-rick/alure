@@ -19,6 +19,22 @@ import {
 } from '@/lib/queries'
 import { getEngineSettings } from '@/lib/settings'
 import { getSessionUser } from '@/lib/session'
+import type { CommercialStatus } from '@/lib/engine/run'
+import type { Tone } from '@/components/ui/badges'
+
+const COMMERCIAL_LABEL: Record<CommercialStatus, string> = {
+  healthy: 'Saudável',
+  attention: 'Atenção',
+  critical: 'Crítico',
+  insufficient_data: 'Dados insuficientes',
+}
+
+const COMMERCIAL_TONE: Record<CommercialStatus, Tone> = {
+  healthy: 'positive',
+  attention: 'attention',
+  critical: 'critical',
+  insufficient_data: 'neutral',
+}
 
 export default async function CommandPage() {
   const settings = await getEngineSettings()
@@ -37,7 +53,7 @@ export default async function CommandPage() {
     getChannelPerformance(settings.windowDays),
     listRecommendations({ kinds: ['priority', 'test_review'], statuses: ['open'], limit: 3 }),
     listRecommendations({ kinds: ['opportunity'], statuses: ['open'], limit: 3 }),
-    listExperiments({ statuses: ['in_progress', 'ready_for_review', 'planned'] }),
+    listExperiments({ statuses: ['ready_for_review', 'in_progress'] }),
     listMemory({ limit: 4, status: 'active' }),
   ])
 
@@ -112,32 +128,42 @@ export default async function CommandPage() {
         </Panel>
 
         <div className="flex flex-col gap-8">
-          <Panel title="Canais">
+          <Panel title="Saúde da operação">
             {connections.length ? (
               <ul className="divide-y divide-border">
                 {connections.map((c) => {
                   const perf = channels.find((p) => p.marketplace_id === c.marketplace_id)
+                  const health = latest?.health?.find((h) => h.marketplaceId === Number(c.marketplace_id))
+                  const connected = c.status === 'connected'
+                  const commercial = connected ? (health?.status ?? 'insufficient_data') : null
+                  const lastSync = health?.lastSuccessfulSync ?? c.last_sync
                   const change =
                     perf && Number(perf.revenue_prev) > 0
                       ? ((Number(perf.revenue_cur) - Number(perf.revenue_prev)) / Number(perf.revenue_prev)) * 100
                       : null
                   return (
-                    <li key={c.marketplace_id} className="flex flex-col gap-1 px-5 py-3">
+                    <li key={c.marketplace_id} className="flex flex-col gap-1.5 px-5 py-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm">{c.name}</span>
-                        <Badge tone={c.status === 'connected' ? 'positive' : c.status === 'error' || c.status === 'expired' ? 'critical' : 'neutral'}>
-                          {c.status === 'connected' ? 'Conectado' : c.status === 'error' ? 'Erro' : c.status === 'expired' ? 'Expirado' : 'Não conectado'}
-                        </Badge>
+                        {commercial ? (
+                          <Badge tone={COMMERCIAL_TONE[commercial]}>{COMMERCIAL_LABEL[commercial]}</Badge>
+                        ) : (
+                          <Badge tone={c.status === 'error' || c.status === 'expired' ? 'critical' : 'neutral'}>
+                            {c.status === 'error' ? 'Erro de conexão' : c.status === 'expired' ? 'Conexão expirada' : 'Não conectado'}
+                          </Badge>
+                        )}
                       </div>
-                      {perf ? (
-                        <span className="font-mono text-[11px] text-muted-foreground tabular">
-                          {settings.windowDays}d · {formatBRL(perf.revenue_cur)} · {formatInt(perf.orders_cur)} ped.
-                          {change !== null ? ` · ${formatPct(change, true)}` : ''}
-                        </span>
+                      {connected ? (
+                        <>
+                          {health?.reason ? <span className="text-xs leading-relaxed text-muted-foreground">{health.reason}</span> : null}
+                          <span className="font-mono text-[11px] text-muted-foreground tabular">
+                            {lastSync ? `Última sync ${formatDateTime(lastSync)}` : 'Nenhuma sync concluída'}
+                            {perf ? ` · ${settings.windowDays}d ${formatBRL(perf.revenue_cur)} · ${formatInt(perf.orders_cur)} ped.` : ''}
+                            {change !== null ? ` · ${formatPct(change, true)}` : ''}
+                          </span>
+                        </>
                       ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {c.last_sync ? `Última sync ${formatDateTime(c.last_sync)}` : 'Sem dados'}
-                        </span>
+                        <span className="text-xs text-muted-foreground">{c.name} ainda não conectado.</span>
                       )}
                     </li>
                   )
@@ -174,7 +200,7 @@ export default async function CommandPage() {
                 ))}
               </ul>
             ) : (
-              <EmptyState title="Nenhum teste ativo." />
+              <EmptyState title="Nenhum teste em acompanhamento." />
             )}
           </Panel>
         </div>
