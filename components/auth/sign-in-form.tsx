@@ -87,7 +87,6 @@ export function SignInForm() {
         return
       }
       router.replace('/')
-      router.refresh()
     } catch {
       setError('Sem conexão com o servidor. Verifique a internet e tente de novo.')
       setPending(false)

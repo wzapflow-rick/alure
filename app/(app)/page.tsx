@@ -37,9 +37,12 @@ const COMMERCIAL_TONE: Record<CommercialStatus, Tone> = {
 }
 
 export default async function CommandPage() {
-  const settings = await getEngineSettings()
-  const [latest, running] = await Promise.all([getLatestAnalysis(), getRunningAnalysis()])
-  const user = await getSessionUser()
+  const [settings, latest, running, user] = await Promise.all([
+    getEngineSettings(),
+    getLatestAnalysis(),
+    getRunningAnalysis(),
+    getSessionUser(),
+  ])
   const stale = isStale(latest)
   if (stale && !running) {
     after(() => runAnalysis('on_open', user).catch(() => undefined))
