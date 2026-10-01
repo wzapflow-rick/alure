@@ -3,6 +3,8 @@ import { requireUser } from '@/lib/session'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SetupRequired } from '@/components/shell/setup-required'
 
+export const dynamic = 'force-dynamic'
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const status = await getDbStatus()
   if (status !== 'ready') return <SetupRequired status={status} />
