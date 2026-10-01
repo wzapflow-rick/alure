@@ -10,15 +10,24 @@ export function hasOpenAIKey() {
   return Boolean(process.env.OPENAI_API_KEY?.trim())
 }
 
+export function isProductionDeployment() {
+  return process.env.VERCEL_ENV === 'production'
+}
+
 /**
- * OpenAI direct when OPENAI_API_KEY exists. Otherwise the same OpenAI model is reached through
- * the Vercel AI Gateway (authenticated by the deployment itself), so the assistant keeps working.
- * Set AI_REQUIRE_OPENAI_KEY=true to disable that fallback.
+ * OPENAI_API_KEY present → OpenAI API directly, always.
+ * No key → Vercel AI Gateway only as a development fallback; production stays unconfigured
+ * instead of silently switching providers.
  */
 export function getProvider(): AIProvider | null {
   if (hasOpenAIKey()) return 'openai'
-  if (process.env.AI_REQUIRE_OPENAI_KEY === 'true') return null
+  if (isProductionDeployment()) return null
   return 'gateway'
+}
+
+export const PROVIDER_LABEL: Record<AIProvider, string> = {
+  openai: 'OpenAI',
+  gateway: 'Vercel AI Gateway (fallback de desenvolvimento)',
 }
 
 export function getLanguageModel(modelId: string): { model: LanguageModel; provider: AIProvider } | null {

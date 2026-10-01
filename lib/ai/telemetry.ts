@@ -79,7 +79,7 @@ export async function logAICall(rec: AICallRecord) {
 
 export type AIOverview = {
   tableReady: boolean
-  lastCall: { created_at: string; task: string; model: string; provider: string; status: string; error: string | null } | null
+  lastCall: { created_at: string; task: string; model: string; provider: string; status: string; error: string | null; cost_usd: string | null } | null
   lastAnalysis: { created_at: string; model: string; status: string } | null
   last7d: { calls: number; errors: number; input_tokens: number; output_tokens: number; cost_usd: number | null } | null
 }
@@ -88,14 +88,15 @@ export async function getAIOverview(): Promise<AIOverview> {
   if (!(await hasTable())) return { tableReady: false, lastCall: null, lastAnalysis: null, last7d: null }
   const [lastCall, lastAnalysis, last7d] = await Promise.all([
     queryOne<NonNullable<AIOverview['lastCall']>>(
-      `SELECT created_at, task, model, provider, status, error FROM ai_calls ORDER BY created_at DESC LIMIT 1`,
+      `SELECT created_at, task, model, provider, status, error, cost_usd FROM ai_calls ORDER BY created_at DESC LIMIT 1`,
     ),
     queryOne<NonNullable<AIOverview['lastAnalysis']>>(
       `SELECT created_at, model, status FROM ai_calls WHERE task = 'DAILY_ANALYSIS' ORDER BY created_at DESC LIMIT 1`,
     ),
     queryOne<{ calls: string; errors: string; input_tokens: string | null; output_tokens: string | null; cost_usd: string | null }>(
       `SELECT COUNT(*) AS calls, COUNT(*) FILTER (WHERE status <> 'success') AS errors,
-              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd
+              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+              CASE WHEN COUNT(*) FILTER (WHERE status = 'success' AND cost_usd IS NULL) > 0 THEN NULL ELSE SUM(cost_usd) END AS cost_usd
          FROM ai_calls WHERE created_at > now() - interval '7 days'`,
     ),
   ])

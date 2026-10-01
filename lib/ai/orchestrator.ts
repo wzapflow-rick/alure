@@ -17,11 +17,18 @@ export function prepareModel(task: AITask): PreparedModel | null {
 
 type Usage = { inputTokens?: number; outputTokens?: number } | undefined
 
-export function estimateCost(tier: ModelTier, usage: Usage, providerMetadata?: unknown) {
-  const reported = (providerMetadata as { gateway?: { cost?: string | number } } | undefined)?.gateway?.cost
-  if (reported !== undefined && Number.isFinite(Number(reported))) return Number(reported)
+/**
+ * OpenAI direct does not report cost, so it is computed from returned tokens × AI_PRICE_<TIER>.
+ * The Gateway's own reported cost is used only when the Gateway was the provider.
+ * Returns null ("não calculado") whenever either piece is missing.
+ */
+export function estimateCost(provider: AIProvider, tier: ModelTier, usage: Usage, providerMetadata?: unknown) {
+  if (provider === 'gateway') {
+    const reported = (providerMetadata as { gateway?: { cost?: string | number } } | undefined)?.gateway?.cost
+    if (reported !== undefined && Number.isFinite(Number(reported))) return Number(reported)
+  }
   const price = priceFor(tier)
-  if (!price || !usage) return null
+  if (!price || usage?.inputTokens == null || usage?.outputTokens == null) return null
   return ((usage.inputTokens ?? 0) * price.input + (usage.outputTokens ?? 0) * price.output) / 1_000_000
 }
 
@@ -39,7 +46,7 @@ export async function recordUsage(
     durationMs: Date.now() - info.startedAt,
     inputTokens: info.usage?.inputTokens ?? null,
     outputTokens: info.usage?.outputTokens ?? null,
-    costUsd: estimateCost(prepared.tier, info.usage, info.providerMetadata),
+    costUsd: estimateCost(prepared.provider, prepared.tier, info.usage, info.providerMetadata),
     userId: info.userId ?? null,
     error: info.error ? safeErrorMessage(info.error) : null,
   })
@@ -93,7 +100,7 @@ export async function runStructuredTask<S extends z.ZodType>(opts: {
         durationMs: Date.now() - startedAt,
         inputTokens: result.usage?.inputTokens ?? null,
         outputTokens: result.usage?.outputTokens ?? null,
-        costUsd: estimateCost(prepared.tier, result.usage, result.providerMetadata),
+        costUsd: estimateCost(prepared.provider, prepared.tier, result.usage, result.providerMetadata),
         validation: { schema: 'ok', attempt },
       })
       return { ok: true, data: parsed.data, modelId: prepared.modelId, provider: prepared.provider, tier: prepared.tier }
