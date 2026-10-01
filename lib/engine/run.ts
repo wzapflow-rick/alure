@@ -1,4 +1,5 @@
 import 'server-only'
+import type { PoolClient } from 'pg'
 import { query, withTransaction } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
 import { daysBetween, todayISO, toNumber } from '@/lib/format'
@@ -7,6 +8,7 @@ import { getEngineSettings, type EngineSettings } from '@/lib/settings'
 import type { SessionUser } from '@/lib/session'
 import {
   applyExperimentGuard,
+  consolidateLostPace,
   baselineFor,
   CATEGORY_LABEL,
   evaluateChannel,
@@ -38,6 +40,8 @@ type ChannelRow = {
   first_date: string | null
   orders_cur: string
   orders_prev: string
+  units_cur: string
+  available_quantity: number | null
   revenue_cur: string
   revenue_prev: string
   orders_base: string
@@ -60,7 +64,17 @@ function coverage(firstDate: string | null, startOffset: number, length: number,
   return Math.max(0, Math.min(length, sinceFirst - startOffset))
 }
 
+/** Stock comes from migration 005; before it runs, the engine treats stock as unknown. */
+async function hasStockColumn() {
+  const rows = await query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'available_quantity') AS ok`,
+  )
+  return Boolean(rows[0]?.ok)
+}
+
 export async function loadChannelStats(today: string, windowDays: number, targetMarginPct: number) {
+  const stockSelect = (await hasStockColumn()) ? 'pc.available_quantity' : 'NULL::int AS available_quantity'
   const rows = await query<ChannelRow>(
     `SELECT pc.id AS product_channel_id, pc.product_id, pc.marketplace_id, m.name AS marketplace_name,
             p.name AS product_name, p.sku, p.category, p.classification,
@@ -68,6 +82,7 @@ export async function loadChannelStats(today: string, windowDays: number, target
             win.w AS window_days, win.base_len,
             to_char(COALESCE(cov.first_date, s.first_date),'YYYY-MM-DD') AS first_date,
             COALESCE(s.orders_cur,0) AS orders_cur, COALESCE(s.orders_prev,0) AS orders_prev,
+            COALESCE(s.units_cur,0) AS units_cur, ${stockSelect},
             COALESCE(s.revenue_cur,0) AS revenue_cur, COALESCE(s.revenue_prev,0) AS revenue_prev,
             COALESCE(s.orders_base,0) AS orders_base, COALESCE(s.revenue_base,0) AS revenue_base,
             to_char(s.last_sale_date,'YYYY-MM-DD') AS last_sale_date,
@@ -88,6 +103,7 @@ export async function loadChannelStats(today: string, windowDays: number, target
         SELECT MIN(metric_date) AS first_date,
                SUM(orders)  FILTER (WHERE metric_date >  $1::date - win.w)                                         AS orders_cur,
                SUM(orders)  FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - 2*win.w)    AS orders_prev,
+               SUM(units)   FILTER (WHERE metric_date >  $1::date - win.w)                                         AS units_cur,
                SUM(revenue) FILTER (WHERE metric_date >  $1::date - win.w)                                         AS revenue_cur,
                SUM(revenue) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - 2*win.w)    AS revenue_prev,
                SUM(orders)  FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS orders_base,
@@ -143,6 +159,8 @@ export async function loadChannelStats(today: string, windowDays: number, target
       windowDays: w,
       ordersCur: Number(r.orders_cur),
       ordersPrev: Number(r.orders_prev),
+      unitsCur: Number(r.units_cur),
+      stock: r.available_quantity === null ? null : Number(r.available_quantity),
       revenueCur: Number(r.revenue_cur),
       revenuePrev: Number(r.revenue_prev),
       ordersBase: Number(r.orders_base),
@@ -430,6 +448,60 @@ function buildOverview(channels: Awaited<ReturnType<typeof loadChannelStats>>, w
   return [...byMk.values()]
 }
 
+/**
+ * On the review date of an approved recommendation, compares the same number of days before
+ * and after the decision and writes the result back to the memory record.
+ * Returns how many records were closed. Silent no-op before migration 005.
+ */
+async function recordOutcomes(client: PoolClient, today: string) {
+  await client.query('SAVEPOINT record_outcomes')
+  try {
+    const { rows } = await client.query<{
+      id: string; days: number; orders_before: string; orders_after: string
+      revenue_before: string; revenue_after: string; visits_before: string | null; visits_after: string | null
+    }>(
+      `SELECT m.id, (m.review_date - m.memory_date) AS days,
+              COALESCE(sb.orders,0) AS orders_before, COALESCE(sa.orders,0) AS orders_after,
+              COALESCE(sb.revenue,0) AS revenue_before, COALESCE(sa.revenue,0) AS revenue_after,
+              tb.visits AS visits_before, ta.visits AS visits_after
+         FROM strategic_memory m
+    LEFT JOIN LATERAL (SELECT SUM(orders) orders, SUM(revenue) revenue FROM sales_metrics
+                        WHERE product_channel_id = m.product_channel_id
+                          AND metric_date <  m.memory_date AND metric_date >= m.memory_date - (m.review_date - m.memory_date)) sb ON true
+    LEFT JOIN LATERAL (SELECT SUM(orders) orders, SUM(revenue) revenue FROM sales_metrics
+                        WHERE product_channel_id = m.product_channel_id
+                          AND metric_date >= m.memory_date AND metric_date < m.review_date) sa ON true
+    LEFT JOIN LATERAL (SELECT SUM(visits) visits FROM traffic_metrics
+                        WHERE product_channel_id = m.product_channel_id
+                          AND metric_date <  m.memory_date AND metric_date >= m.memory_date - (m.review_date - m.memory_date)) tb ON true
+    LEFT JOIN LATERAL (SELECT SUM(visits) visits FROM traffic_metrics
+                        WHERE product_channel_id = m.product_channel_id
+                          AND metric_date >= m.memory_date AND metric_date < m.review_date) ta ON true
+        WHERE m.outcome IS NULL AND m.recommendation_id IS NOT NULL
+          AND m.product_channel_id IS NOT NULL AND m.review_date <= $1::date`,
+      [today],
+    )
+    for (const r of rows) {
+      const ob = Number(r.orders_before), oa = Number(r.orders_after)
+      const rb = Number(r.revenue_before), ra = Number(r.revenue_after)
+      const delta = rb > 0 ? ((ra - rb) / rb) * 100 : null
+      const verdict = delta === null ? (ra > 0 ? 'melhorou' : 'sem dados') : delta >= 10 ? 'melhorou' : delta <= -10 ? 'piorou' : 'estável'
+      const visits = r.visits_before !== null && r.visits_after !== null ? ` · visitas ${r.visits_before} → ${r.visits_after}` : ''
+      const text = `Resultado em ${r.days} dias: ${verdict}. Pedidos ${ob} → ${oa}; faturamento R$ ${rb.toFixed(2)} → R$ ${ra.toFixed(2)}${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%)` : ''}${visits}.`
+      await client.query(
+        `UPDATE strategic_memory SET outcome = $2, outcome_data = $3, outcome_at = now(), updated_at = now() WHERE id = $1`,
+        [r.id, text, JSON.stringify({ verdict, days: r.days, ordersBefore: ob, ordersAfter: oa, revenueBefore: rb, revenueAfter: ra, revenueDeltaPct: delta, visitsBefore: r.visits_before, visitsAfter: r.visits_after })],
+      )
+    }
+    await client.query('RELEASE SAVEPOINT record_outcomes')
+    return rows.length
+  } catch (e) {
+    await client.query('ROLLBACK TO SAVEPOINT record_outcomes')
+    if ((e as { code?: string }).code !== '42703') throw e
+    return 0
+  }
+}
+
 export async function runEngine(user: SessionUser | null, analysisRunId: number | null = null) {
   const today = todayISO()
   const settings = await getEngineSettings()
@@ -442,7 +514,7 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
   const raw = channels.flatMap((c) => evaluateChannel(c, settings, today))
   const guarded = applyExperimentGuard(raw, experiments, today)
   const remembered = applyMemoryGuard(guarded.signals, memories)
-  const preliminary: Signal[] = remembered.signals
+  const preliminary: Signal[] = consolidateLostPace(remembered.signals)
   for (const exp of experiments) {
     const s = experimentReviewSignal(exp, today)
     if (s) preliminary.push(s)
@@ -551,7 +623,10 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       [alertFingerprints],
     )
 
+    const outcomes = await recordOutcomes(client, today)
+
     const result = {
+      outcomesRecorded: outcomes,
       channelsAnalyzed: channels.length,
       signals: signals.length,
       created,

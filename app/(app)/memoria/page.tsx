@@ -37,6 +37,11 @@ export default async function MemoryPage() {
                   <p className="text-sm leading-relaxed text-pretty">{m.decision}</p>
                   {m.reason ? <p className="text-sm leading-relaxed text-muted-foreground">Motivo: {m.reason}</p> : null}
                   {m.expected_result ? <p className="text-sm leading-relaxed text-muted-foreground">Esperado: {m.expected_result}</p> : null}
+                  {m.outcome ? (
+                    <p className="text-sm leading-relaxed text-pretty">{m.outcome}</p>
+                  ) : m.review_date ? (
+                    <p className="font-mono text-xs text-muted-foreground">Resultado medido em {m.review_date.split('-').reverse().join('/')}</p>
+                  ) : null}
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">{m.user_name ?? 'Sistema'}</span>
                     <InlineAction action={archiveMemory} fields={{ id: m.id, status: 'archived' }} label="Arquivar" />

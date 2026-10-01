@@ -59,6 +59,19 @@ export async function upsertDailyMetric(client: PoolClient, marketplaceId: numbe
   return true
 }
 
+/** Stock columns come from migration 005; until it runs, the sync keeps working without them. */
+async function saveStock(client: PoolClient, channelId: string, qty: number | null | undefined) {
+  if (qty === null || qty === undefined) return
+  await client.query('SAVEPOINT save_stock')
+  try {
+    await client.query('UPDATE product_channels SET available_quantity = $2, stock_synced_at = now() WHERE id = $1', [channelId, Math.max(0, qty)])
+    await client.query('RELEASE SAVEPOINT save_stock')
+  } catch (e) {
+    await client.query('ROLLBACK TO SAVEPOINT save_stock')
+    if ((e as { code?: string }).code !== '42703') throw e
+  }
+}
+
 /**
  * Links a marketplace listing to an ALURE product by SKU. Listings without a matching SKU
  * are skipped (never auto-creating products). Price changes are recorded in price_history.
@@ -82,6 +95,7 @@ export async function upsertListing(client: PoolClient, marketplaceId: number, l
         [row.id, row.current_price, l.price],
       )
     }
+    await saveStock(client, row.id, l.availableQuantity)
     return true
   }
 
@@ -112,6 +126,7 @@ export async function upsertListing(client: PoolClient, marketplaceId: number, l
      VALUES ($1, NULL, $2, 'sync', 'Anúncio vinculado pela sincronização')`,
     [inserted.rows[0].id, l.price],
   )
+  await saveStock(client, inserted.rows[0].id, l.availableQuantity)
   return true
 }
 

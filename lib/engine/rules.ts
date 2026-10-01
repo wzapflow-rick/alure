@@ -73,6 +73,8 @@ export const RULE_META: Record<string, { category: Category; metric: string; rev
   R9_PROMO_TEST: { category: 'commercial', metric: 'Pedidos e margem durante a promoção', reviewDays: 14 },
   R8_MISSING_DATA: { category: 'pending_data', metric: 'Cadastro completo de custo e taxas', reviewDays: 7 },
   R7_TEST_REVIEW: { category: 'commercial', metric: 'Pedidos, visitas e conversão antes × durante', reviewDays: 0 },
+  R0_LOST_PACE: { category: 'commercial', metric: 'Visitas → conversão → pedidos → faturamento, nessa ordem', reviewDays: 7 },
+  R10_STOCKOUT_RISK: { category: 'commercial', metric: 'Cobertura de estoque em dias de venda', reviewDays: 3 },
 }
 
 export function ruleMeta(ruleCode: string) {
@@ -84,7 +86,9 @@ export type StrategicMemory = { id: number; productId: number; kind: string; sub
 /** A registered decision that freezes commercial changes on the product. */
 const FREEZE_PATTERN = /n[ãa]o\s+(alterar|mexer|mudar|reduzir|aumentar|baixar|subir)|congel|manter\s+(o\s+)?(pre[çc]o|an[úu]ncio)|at[ée]\s+o\s+fim\s+do\s+teste/i
 
+/** Automatic records (kind 'context') describe what happened; only decisions and rules freeze. */
 export function isFreezeMemory(m: StrategicMemory) {
+  if (m.kind === 'context') return false
   return FREEZE_PATTERN.test(`${m.subject} ${m.decision}`)
 }
 
@@ -100,6 +104,9 @@ export type ChannelStats = {
   windowDays: number
   ordersCur: number
   ordersPrev: number
+  unitsCur: number
+  /** Units available in the marketplace; null when not synced. */
+  stock: number | null
   revenueCur: number
   revenuePrev: number
   ordersBase: number
@@ -179,9 +186,31 @@ function capConfidence(c: Confidence, max: Confidence): Confidence {
   return CONF_RANK[c] > CONF_RANK[max] ? max : c
 }
 
-function score(severity: Severity, revenueAtStake: number) {
-  return SEVERITY_BASE[severity] + Math.min(30, Math.round(revenueAtStake / 1000))
+/**
+ * Priority follows the daily goal: revenue at stake per day as a share of the target.
+ * 10% of the daily target at stake adds the maximum 40 points.
+ */
+function score(severity: Severity, revenueAtStake: number, windowDays: number, dailyTarget: number) {
+  const perDay = Math.max(0, revenueAtStake) / Math.max(1, windowDays)
+  const share = dailyTarget > 0 ? perDay / dailyTarget : 0
+  return SEVERITY_BASE[severity] + Math.min(40, Math.round(share * 400))
 }
+
+/** An alert is only worth an interruption when the product moves the daily goal. */
+const ALERT_MIN_GOAL_SHARE = 0.01
+const ALERT_MIN_UNITS_PER_DAY = 1
+
+/** Signals that all describe "the product lost commercial pace", in diagnostic order. */
+const LOST_PACE_ORDER = ['R1_STALLED', 'R2B_TRAFFIC_AND_CONVERSION', 'R2_TRAFFIC_PROBLEM', 'R3_CONVERSION_PROBLEM', 'R2S_SALES_DROP', 'R6_TICKET_DROP']
+const LOST_PACE_LABEL: Record<string, string> = {
+  R1_STALLED: 'Sem venda',
+  R2B_TRAFFIC_AND_CONVERSION: 'Tráfego e conversão',
+  R2_TRAFFIC_PROBLEM: 'Tráfego',
+  R3_CONVERSION_PROBLEM: 'Conversão',
+  R2S_SALES_DROP: 'Pedidos',
+  R6_TICKET_DROP: 'Faturamento/ticket',
+}
+const SEVERITY_RANK: Record<Severity, number> = { critical: 3, attention: 2, positive: 1, info: 0 }
 
 function fmtDays(n: number) {
   return `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dia${n === 1 ? '' : 's'}`
@@ -215,6 +244,9 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
   const convVsBase = base.conversion !== null && conversion !== null ? pctChange(conversion, base.conversion) : null
   const baseLabel = `média dos ${base.days} dias anteriores à janela`
   const sig = s.significantChangePct
+  const sc = (severity: Severity, revenueAtStake: number) => score(severity, revenueAtStake, w, s.dailyTarget)
+  const unitsPerDay = (c.unitsCur > 0 ? c.unitsCur : c.ordersCur) / w
+  const coverageDays = c.stock !== null && unitsPerDay > 0 ? c.stock / unitsPerDay : null
 
   const ticketCur = c.ordersCur > 0 ? c.revenueCur / c.ordersCur : null
   const ticketPrev = c.ordersPrev > 0 ? c.revenuePrev / c.ordersPrev : null
@@ -285,7 +317,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
         severity,
         actionType: 'recommendation',
         confidence: base.saleInterval !== null ? capConfidence(c.saleDays90 >= 10 ? 'high' : 'medium', profile.maxConfidence) : 'low',
-        score: score(severity, c.revenuePrev),
+        score: sc(severity, c.revenuePrev),
         title,
         issue:
           base.saleInterval !== null
@@ -323,7 +355,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'recommendation',
       confidence: capConfidence('high', profile.maxConfidence),
-      score: score('attention', c.revenuePrev),
+      score: sc('attention', c.revenuePrev),
       title,
       issue: `Visitas ${formatPct(Math.abs(visitsVsBase!))} abaixo da base, com conversão mantida.`,
       evidence: [
@@ -351,7 +383,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'recommendation',
       confidence: capConfidence(c.ordersCur + (base.orders ?? 0) >= s.minOrdersHistory * 2 ? 'medium' : 'low', profile.maxConfidence),
-      score: score('attention', c.revenuePrev - c.revenueCur),
+      score: sc('attention', c.revenuePrev - c.revenueCur),
       title,
       issue: `Visitas ${formatPct(Math.abs(visitsVsBase!))} e conversão ${formatPct(Math.abs(convVsBase))} abaixo da base.`,
       evidence: [
@@ -390,7 +422,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'recommendation',
       confidence: capConfidence(c.ordersCur >= s.minOrdersHistory ? 'medium' : 'low', profile.maxConfidence),
-      score: score('attention', revenueBaseScaled! - c.revenueCur),
+      score: sc('attention', revenueBaseScaled! - c.revenueCur),
       title,
       issue: `Faturamento ${formatPct(Math.abs(revenueVsBase))} abaixo da base com pedidos estáveis.`,
       evidence: [
@@ -424,7 +456,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'approval_required',
       confidence: capConfidence(c.ordersCur + (base.orders ?? 0) >= s.minOrdersHistory * 2 ? 'high' : 'medium', profile.maxConfidence),
-      score: score('attention', (base.orders ?? 0) * c.price - c.revenueCur),
+      score: sc('attention', (base.orders ?? 0) * c.price - c.revenueCur),
       title,
       issue: `Conversão ${formatPct(Math.abs(convVsBase))} abaixo da base do próprio produto.`,
       evidence: [
@@ -458,7 +490,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'recommendation',
       confidence: 'low',
-      score: score('attention', c.revenueCur),
+      score: sc('attention', c.revenueCur),
       title,
       issue: `Conversão de ${formatPct(conversion)} com ${formatInt(c.visitsCur)} visitas, sem base histórica do produto.`,
       evidence: [
@@ -483,7 +515,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'attention',
       actionType: 'recommendation',
       confidence: 'low',
-      score: score('attention', c.revenuePrev - c.revenueCur),
+      score: sc('attention', c.revenuePrev - c.revenueCur),
       title,
       issue: `Pedidos ${formatPct(Math.abs(ordersVsBase))} abaixo da base, sem dado de tráfego.`,
       evidence: [
@@ -510,7 +542,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity,
       actionType: 'approval_required',
       confidence: 'high',
-      score: score(severity, c.revenueCur),
+      score: sc(severity, c.revenueCur),
       title,
       issue:
         p.contributionMargin < 0
@@ -545,8 +577,11 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
   }
 
   // D — momentum positivo: não interferir
+  // Acceleration must be consistent: orders up without revenue or visits collapsing.
   const convNotFalling = convVsBase === null || convVsBase > -sig / 2
-  if (ordersVsBase !== null && ordersVsBase >= sig && c.ordersCur >= s.minOrdersHistory && convNotFalling) {
+  const revenueNotFalling = c.revenuePrev <= 0 || c.revenueCur >= c.revenuePrev
+  const visitsNotFalling = visitsVsBase === null || visitsVsBase > -sig
+  if (ordersVsBase !== null && ordersVsBase >= sig && c.ordersCur >= s.minOrdersHistory && convNotFalling && revenueNotFalling && visitsNotFalling) {
     signals.push({
       ...ids,
       fingerprint: `R5:${c.productChannelId}`,
@@ -555,9 +590,9 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'positive',
       actionType: 'information',
       confidence: capConfidence(base.days >= 30 ? 'high' : 'medium', profile.maxConfidence),
-      score: score('positive', c.revenueCur),
+      score: sc('positive', c.revenueCur),
       title,
-      issue: `Pedidos ${formatPct(ordersVsBase)} acima da base${convVsBase !== null && convVsBase > 0 ? ' e conversão em alta' : ''}.`,
+      issue: `Produto apresenta aceleração acima do próprio histórico: pedidos ${formatPct(ordersVsBase)} vs base${convVsBase !== null && convVsBase > 0 ? ', conversão em alta' : ''}.`,
       evidence: [
         { label: 'FATO', text: `${formatInt(c.ordersCur)} pedidos em ${w} dias; a ${baseLabel} indica ${base.orders!.toFixed(1)}.` },
         ...(convVsBase !== null
@@ -566,7 +601,10 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
         { label: 'INTERPRETAÇÃO', text: 'O produto está ganhando tração — o que está funcionando não deve ser mexido.' },
       ],
       data: commonData,
-      recommendation: 'Não interferir. Garantir estoque para sustentar o ritmo.',
+      recommendation:
+        coverageDays !== null
+          ? `Não interferir. Estoque cobre ~${fmtDays(Math.floor(coverageDays))} no ritmo atual${coverageDays < 14 ? ' — programar reposição' : ''}.`
+          : 'Não interferir. Garantir estoque para sustentar o ritmo.',
       reason: 'Mudar preço ou anúncio durante a aceleração pode quebrar o que está funcionando.',
       objective: 'Sustentar o crescimento sem perder margem.',
       suggestsChange: false,
@@ -592,7 +630,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       severity: 'positive',
       actionType: 'approval_required',
       confidence: capConfidence('medium', profile.maxConfidence),
-      score: score('positive', base.orders! * c.price - c.revenueCur),
+      score: sc('positive', base.orders! * c.price - c.revenueCur),
       title,
       issue: `Desaceleração de ${formatPct(Math.abs(ordersVsBase))} com margem de ${formatPct(c.pricing.marginPct)}.`,
       evidence: [
@@ -636,7 +674,124 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
     })
   }
 
-  return signals.map((sg) => applyConservatism(sg, profile))
+  // F — risco comercial de ruptura: estoque que não sustenta o ritmo de venda
+  const dailyRevenue = c.revenueCur / w
+  const relevant = dailyRevenue >= s.dailyTarget * ALERT_MIN_GOAL_SHARE || unitsPerDay >= ALERT_MIN_UNITS_PER_DAY
+  if (c.stock !== null && unitsPerDay > 0 && relevant && coverageDays !== null && coverageDays <= 7) {
+    const severity: Severity = c.stock === 0 || coverageDays <= 3 ? 'critical' : 'attention'
+    const daysAtRisk = Math.max(1, 7 - Math.floor(coverageDays))
+    const atStake = dailyRevenue * daysAtRisk
+    signals.push({
+      ...ids,
+      fingerprint: `R10:${c.productChannelId}`,
+      ruleCode: 'R10_STOCKOUT_RISK',
+      kind: 'priority',
+      severity,
+      actionType: 'recommendation',
+      confidence: c.ordersCur >= s.minOrdersHistory ? 'high' : 'medium',
+      score: score(severity, atStake * w, w, s.dailyTarget) + 10,
+      title,
+      issue:
+        c.stock === 0
+          ? `Sem estoque no marketplace com venda média de ${unitsPerDay.toFixed(1)} un/dia.`
+          : `Estoque cobre ~${fmtDays(Math.floor(coverageDays))} de venda no ritmo atual.`,
+      evidence: [
+        { label: 'FATO', text: `Estoque atual: ${formatInt(c.stock)} un. Velocidade: ${unitsPerDay.toFixed(1)} un/dia (últimos ${w} dias).` },
+        { label: 'FATO', text: `Cobertura estimada: ${coverageDays.toFixed(1)} dias.` },
+        { label: 'INTERPRETAÇÃO', text: `Ruptura interrompe a venda e derruba a relevância do anúncio. Cerca de ${formatBRL(atStake)} de faturamento em risco na próxima semana.` },
+      ],
+      data: [
+        ...commonData,
+        { label: 'Estoque atual', value: `${formatInt(c.stock)} un` },
+        { label: 'Velocidade de venda', value: `${unitsPerDay.toFixed(1)} un/dia` },
+        { label: 'Cobertura', value: `${coverageDays.toFixed(1)} dias` },
+        { label: 'Impacto estimado', value: `${formatBRL(dailyRevenue)}/dia · ${formatPct((dailyRevenue / Math.max(1, s.dailyTarget)) * 100)} da meta diária` },
+      ],
+      recommendation: c.stock === 0 ? 'Repor estoque imediatamente ou pausar investimento em exposição até a reposição.' : 'Programar reposição antes da ruptura.',
+      reason: 'Repor é mais barato do que recuperar posição depois de ficar sem estoque.',
+      objective: 'Manter cobertura acima de 7 dias.',
+      suggestsChange: false,
+      alert: {
+        type: 'stockout_risk',
+        severity,
+        message: `${title}: estoque cobre ~${fmtDays(Math.floor(coverageDays))} (${formatInt(c.stock)} un, ${unitsPerDay.toFixed(1)} un/dia).`,
+      },
+    })
+  }
+
+  // Alertas só para o que move a meta. O sinal continua nas prioridades; só não interrompe.
+  const gated = signals.map((sg) => {
+    if (!sg.alert || relevant) return sg
+    return {
+      ...sg,
+      alert: undefined,
+      trace: [
+        ...(sg.trace ?? []),
+        `Alerta suprimido: produto fatura ${formatBRL(dailyRevenue)}/dia e vende ${unitsPerDay.toFixed(1)} un/dia — abaixo da relevância mínima (${formatPct(ALERT_MIN_GOAL_SHARE * 100)} da meta ou ${ALERT_MIN_UNITS_PER_DAY} un/dia).`,
+      ],
+    }
+  })
+
+  return gated.map((sg) => applyConservatism(sg, profile))
+}
+
+/**
+ * Several drop rules on the same listing are one problem: "perdeu ritmo comercial".
+ * The merged card keeps every component as evidence and leads with the first link of the
+ * diagnostic chain (tráfego → conversão → pedidos → faturamento).
+ */
+export function consolidateLostPace(signals: Signal[]): Signal[] {
+  const groups = new Map<number, Signal[]>()
+  const rest: Signal[] = []
+  for (const sg of signals) {
+    if (sg.kind === 'priority' && sg.productChannelId !== null && LOST_PACE_ORDER.includes(sg.ruleCode)) {
+      const list = groups.get(sg.productChannelId) ?? []
+      list.push(sg)
+      groups.set(sg.productChannelId, list)
+    } else rest.push(sg)
+  }
+
+  for (const [pcId, group] of groups) {
+    if (group.length < 2) {
+      rest.push(...group)
+      continue
+    }
+    const ordered = [...group].sort((a, b) => LOST_PACE_ORDER.indexOf(a.ruleCode) - LOST_PACE_ORDER.indexOf(b.ruleCode))
+    const primary = ordered[0]
+    const severity = ordered.reduce<Severity>((m, g) => (SEVERITY_RANK[g.severity] > SEVERITY_RANK[m] ? g.severity : m), primary.severity)
+    const confidence = ordered.reduce<Confidence>((m, g) => (CONF_RANK[g.confidence] > CONF_RANK[m] ? g.confidence : m), primary.confidence)
+    const links = ordered.map((g) => LOST_PACE_LABEL[g.ruleCode])
+    const withAlert = ordered.filter((g) => g.alert)
+    const dataSeen = new Set<string>()
+
+    rest.push({
+      ...primary,
+      fingerprint: `RP:${pcId}`,
+      ruleCode: 'R0_LOST_PACE',
+      severity,
+      confidence,
+      score: Math.max(...ordered.map((g) => g.score)) + 5,
+      issue: `Perdeu ritmo comercial — ${links.join(', ').toLowerCase()}.`,
+      evidence: [
+        ...ordered.map((g) => ({ label: 'FATO' as const, text: `${LOST_PACE_LABEL[g.ruleCode]}: ${g.issue}` })),
+        ...primary.evidence.filter((e) => e.label !== 'FATO'),
+        { label: 'INTERPRETAÇÃO', text: `Ordem de investigação: ${links.join(' → ')}. Resolver o primeiro elo antes de mexer nos seguintes.` },
+      ],
+      data: ordered.flatMap((g) => g.data).filter((d) => (dataSeen.has(d.label) ? false : (dataSeen.add(d.label), true))),
+      alert: withAlert.length
+        ? {
+            type: 'lost_pace',
+            severity: withAlert.reduce<Severity>((m, g) => (SEVERITY_RANK[g.alert!.severity] > SEVERITY_RANK[m] ? g.alert!.severity : m), 'info'),
+            message: `${primary.title}: perdeu ritmo comercial (${links.join(', ').toLowerCase()}).`,
+          }
+        : undefined,
+      trace: [
+        ...ordered.flatMap((g) => g.trace ?? []),
+        `Consolidado em "perdeu ritmo comercial": ${ordered.map((g) => g.ruleCode).join(', ')}.`,
+      ],
+    })
+  }
+  return rest
 }
 
 /** Weak or monitor-only signals become "continuar monitorando" — the engine can say "do nothing". */
