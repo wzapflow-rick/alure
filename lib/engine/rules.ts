@@ -44,6 +44,48 @@ export type Signal = {
   /** Changes something commercial — held back while a test is running. */
   suggestsChange: boolean
   alert?: { type: string; severity: Severity; message: string }
+  /** Every transformation applied after the rule fired — stored in the run trace. */
+  trace?: string[]
+}
+
+/** Separates what can move sales from what only needs attention or data. */
+export type Category = 'commercial' | 'operational' | 'pending_data' | 'info'
+
+export const CATEGORY_LABEL: Record<Category, string> = {
+  commercial: 'Prioridade comercial',
+  operational: 'Alerta operacional',
+  pending_data: 'Dado pendente',
+  info: 'Informação',
+}
+
+/** MÉTRICA and PERÍODO for each rule: how we will know the action worked, and when to look again. */
+export const RULE_META: Record<string, { category: Category; metric: string; reviewDays: number }> = {
+  RH_INSUFFICIENT_DATA: { category: 'info', metric: 'Dias de histórico sincronizado', reviewDays: 7 },
+  R1_STALLED: { category: 'commercial', metric: 'Pedidos e visitas diárias do anúncio', reviewDays: 3 },
+  R2_TRAFFIC_PROBLEM: { category: 'commercial', metric: 'Visitas, pedidos e conversão', reviewDays: 7 },
+  R2B_TRAFFIC_AND_CONVERSION: { category: 'commercial', metric: 'Visitas primeiro; depois conversão e pedidos', reviewDays: 7 },
+  R3_CONVERSION_PROBLEM: { category: 'commercial', metric: 'Conversão e pedidos com tráfego estável', reviewDays: 7 },
+  R3L_LOW_CONVERSION: { category: 'info', metric: 'Conversão do próprio anúncio', reviewDays: 14 },
+  R2S_SALES_DROP: { category: 'commercial', metric: 'Pedidos e visitas (quando sincronizadas)', reviewDays: 7 },
+  R6_TICKET_DROP: { category: 'commercial', metric: 'Faturamento, ticket médio e unidades por pedido', reviewDays: 7 },
+  R4_LOW_MARGIN: { category: 'operational', metric: 'Margem de contribuição por unidade', reviewDays: 14 },
+  R5_MOMENTUM: { category: 'info', metric: 'Pedidos, conversão e estoque', reviewDays: 7 },
+  R9_PROMO_TEST: { category: 'commercial', metric: 'Pedidos e margem durante a promoção', reviewDays: 14 },
+  R8_MISSING_DATA: { category: 'pending_data', metric: 'Cadastro completo de custo e taxas', reviewDays: 7 },
+  R7_TEST_REVIEW: { category: 'commercial', metric: 'Pedidos, visitas e conversão antes × durante', reviewDays: 0 },
+}
+
+export function ruleMeta(ruleCode: string) {
+  return RULE_META[ruleCode] ?? { category: 'info' as Category, metric: 'Pedidos e visitas', reviewDays: 7 }
+}
+
+export type StrategicMemory = { id: number; productId: number; kind: string; subject: string; decision: string }
+
+/** A registered decision that freezes commercial changes on the product. */
+const FREEZE_PATTERN = /n[ãa]o\s+(alterar|mexer|mudar|reduzir|aumentar|baixar|subir)|congel|manter\s+(o\s+)?(pre[çc]o|an[úu]ncio)|at[ée]\s+o\s+fim\s+do\s+teste/i
+
+export function isFreezeMemory(m: StrategicMemory) {
+  return FREEZE_PATTERN.test(`${m.subject} ${m.decision}`)
 }
 
 export type ChannelStats = {
@@ -61,6 +103,7 @@ export type ChannelStats = {
   revenueCur: number
   revenuePrev: number
   ordersBase: number
+  revenueBase: number
   /** Days of the baseline window covered by synced history. */
   baseDays: number
   visitsCur: number | null
@@ -173,14 +216,22 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
   const baseLabel = `média dos ${base.days} dias anteriores à janela`
   const sig = s.significantChangePct
 
+  const ticketCur = c.ordersCur > 0 ? c.revenueCur / c.ordersCur : null
+  const ticketPrev = c.ordersPrev > 0 ? c.revenuePrev / c.ordersPrev : null
   const commonData: EvidenceDatum[] = [
     { label: 'Classificação', value: profile.label },
     { label: 'Preço atual', value: formatBRL(c.price) },
     { label: 'Janela analisada', value: `${w} dias` },
     { label: 'Histórico sincronizado', value: fmtDays(c.historyDays) },
-    { label: `Pedidos (${w}d)`, value: formatInt(c.ordersCur) },
+    { label: `Pedidos (${w}d) · anterior`, value: `${formatInt(c.ordersCur)} · ${formatInt(c.ordersPrev)}` },
+    { label: `Faturamento (${w}d) · anterior`, value: `${formatBRL(c.revenueCur)} · ${formatBRL(c.revenuePrev)}` },
+    ...(ticketCur !== null || ticketPrev !== null
+      ? [{ label: 'Ticket médio · anterior', value: `${ticketCur !== null ? formatBRL(ticketCur) : '—'} · ${ticketPrev !== null ? formatBRL(ticketPrev) : '—'}` }]
+      : []),
+    ...(c.visitsCur !== null && c.visitsPrev !== null
+      ? [{ label: `Visitas (${w}d) · anterior`, value: `${formatInt(c.visitsCur)} · ${formatInt(c.visitsPrev)}` }]
+      : []),
     { label: `Pedidos esperados pela base`, value: base.orders !== null ? base.orders.toFixed(1) : 'sem base' },
-    ...(c.visitsCur !== null ? [{ label: `Visitas (${w}d)`, value: formatInt(c.visitsCur) }] : []),
     ...(base.visits !== null ? [{ label: 'Visitas esperadas pela base', value: formatInt(Math.round(base.visits)) }] : []),
     ...(conversion !== null ? [{ label: 'Conversão atual', value: formatPct(conversion) }] : []),
     ...(base.conversion !== null ? [{ label: 'Conversão de base', value: formatPct(base.conversion) }] : []),
@@ -287,6 +338,77 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       objective: 'Recuperar o tráfego da base histórica.',
       suggestsChange: false,
       alert: { type: 'traffic_drop', severity: 'attention', message: `${title}: visitas ${formatPct(visitsVsBase!, true)} vs base.` },
+    })
+  }
+
+  // B2 — tráfego e conversão caíram juntos: tráfego vem primeiro na ordem de análise
+  if (trafficFell && convVsBase !== null && convVsBase <= -sig && base.visits !== null && base.visits >= s.minVisitsForConversion) {
+    signals.push({
+      ...ids,
+      fingerprint: `R2B:${c.productChannelId}`,
+      ruleCode: 'R2B_TRAFFIC_AND_CONVERSION',
+      kind: 'priority',
+      severity: 'attention',
+      actionType: 'recommendation',
+      confidence: capConfidence(c.ordersCur + (base.orders ?? 0) >= s.minOrdersHistory * 2 ? 'medium' : 'low', profile.maxConfidence),
+      score: score('attention', c.revenuePrev - c.revenueCur),
+      title,
+      issue: `Visitas ${formatPct(Math.abs(visitsVsBase!))} e conversão ${formatPct(Math.abs(convVsBase))} abaixo da base.`,
+      evidence: [
+        { label: 'FATO', text: `${formatInt(c.visitsCur)} visitas em ${w} dias; a ${baseLabel} indica ${formatInt(Math.round(base.visits))}.` },
+        { label: 'FATO', text: `Conversão de ${formatPct(conversion ?? 0)} vs ${formatPct(base.conversion ?? 0)} de base.` },
+        { label: 'INTERPRETAÇÃO', text: 'Os dois elos caíram; não dá para atribuir a queda a um só. Tráfego é o primeiro a investigar.' },
+        { label: 'HIPÓTESE', text: 'Perda de exposição trazendo visitantes menos qualificados, ou mudança competitiva (preço/frete) afetando busca e decisão.' },
+      ],
+      data: commonData,
+      recommendation: 'Investigar exposição (posição, Ads, status) antes de alterar preço ou anúncio.',
+      reason: 'Mexer em preço com tráfego em queda mistura duas causas e impede saber o que funcionou.',
+      objective: 'Recuperar o tráfego e, então, reavaliar a conversão.',
+      suggestsChange: false,
+      alert: { type: 'traffic_conversion_drop', severity: 'attention', message: `${title}: visitas ${formatPct(visitsVsBase!, true)} e conversão ${formatPct(convVsBase, true)} vs base.` },
+    })
+  }
+
+  // Ticket — pedidos estáveis, faturamento em queda: investigar mix, unidades por pedido e preço
+  const revenueBaseScaled = c.baseDays >= MIN_BASELINE_DAYS ? (c.revenueBase / c.baseDays) * w : null
+  const revenueVsBase = revenueBaseScaled !== null ? pctChange(c.revenueCur, revenueBaseScaled) : null
+  if (
+    revenueVsBase !== null &&
+    revenueVsBase <= -sig &&
+    ordersVsBase !== null &&
+    ordersVsBase > -sig / 2 &&
+    (base.orders ?? 0) >= s.minOrdersHistory &&
+    c.ordersCur > 0
+  ) {
+    const ticketBase = base.orders ? revenueBaseScaled! / base.orders : null
+    const priceChangedInWindow = c.lastPriceChange !== null && daysBetween(c.lastPriceChange.date, today) <= w
+    signals.push({
+      ...ids,
+      fingerprint: `R6:${c.productChannelId}`,
+      ruleCode: 'R6_TICKET_DROP',
+      kind: 'priority',
+      severity: 'attention',
+      actionType: 'recommendation',
+      confidence: capConfidence(c.ordersCur >= s.minOrdersHistory ? 'medium' : 'low', profile.maxConfidence),
+      score: score('attention', revenueBaseScaled! - c.revenueCur),
+      title,
+      issue: `Faturamento ${formatPct(Math.abs(revenueVsBase))} abaixo da base com pedidos estáveis.`,
+      evidence: [
+        { label: 'FATO', text: `${formatBRL(c.revenueCur)} em ${w} dias; a ${baseLabel} indica ${formatBRL(revenueBaseScaled!)}.` },
+        { label: 'FATO', text: `Pedidos ${formatPct(ordersVsBase, true)} vs base; ticket ${ticketCur !== null ? formatBRL(ticketCur) : '—'} vs ${ticketBase !== null ? formatBRL(ticketBase) : '—'} de base.` },
+        { label: 'INTERPRETAÇÃO', text: 'O volume se manteve; cada pedido está valendo menos.' },
+        {
+          label: 'HIPÓTESE',
+          text: priceChangedInWindow
+            ? `O preço mudou em ${fmtDate(c.lastPriceChange!.date)}; pode estar relacionado — ainda não comprovado.`
+            : 'Menos unidades por pedido, variação mais barata vendendo mais ou desconto aplicado.',
+        },
+      ],
+      data: commonData,
+      recommendation: 'Verificar unidades por pedido, variações vendidas e descontos antes de qualquer ajuste.',
+      reason: 'Queda de ticket com volume estável não é problema de tráfego nem de conversão.',
+      objective: 'Identificar o componente do ticket que caiu.',
+      suggestsChange: false,
     })
   }
 
@@ -487,20 +609,24 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
     })
   }
 
-  // Dados obrigatórios ausentes para margem
-  if (c.pricing.status !== 'ok') {
+  // Dado pendente — só quando a ausência limita uma decisão real (produto que vende)
+  if (c.pricing.status !== 'ok' && (c.ordersCur > 0 || c.ordersBase > 0)) {
     signals.push({
       ...ids,
       fingerprint: `R8:${c.productChannelId}:${c.pricing.status}`,
       ruleCode: 'R8_MISSING_DATA',
-      kind: 'priority',
+      kind: 'no_action',
       severity: 'info',
       actionType: 'information',
       confidence: 'high',
-      score: score('info', 0),
+      score: 10 + Math.min(20, Math.round((c.revenueCur + c.revenuePrev) / 500)),
       title,
       issue: c.pricing.message,
-      evidence: [{ label: 'FATO', text: c.pricing.message }],
+      evidence: [
+        { label: 'FATO', text: c.pricing.message },
+        { label: 'FATO', text: `${formatInt(c.ordersCur)} pedidos e ${formatBRL(c.revenueCur)} nos últimos ${w} dias.` },
+        { label: 'INTERPRETAÇÃO', text: 'Não impede a leitura de tráfego e conversão; impede apenas avaliar margem e preço.' },
+      ],
       data: commonData,
       recommendation:
         c.pricing.status === 'missing_cost' ? 'Cadastrar o custo (lote) do produto.' : 'Cadastrar a regra de taxa vigente deste marketplace.',
@@ -519,6 +645,10 @@ function applyConservatism(sg: Signal, profile: Profile): Signal {
   if (sg.confidence !== 'low' && !profile.monitorOnly) return sg
   return {
     ...sg,
+    trace: [
+      ...(sg.trace ?? []),
+      `Rebaixado de ${sg.kind}/${sg.severity} para monitorar: ${profile.monitorOnly ? `classe ${profile.label} só observa` : 'confiança baixa (amostra pequena)'}.`,
+    ],
     kind: 'no_action',
     severity: 'info',
     actionType: 'information',
@@ -579,6 +709,7 @@ export function applyExperimentGuard(signals: Signal[], experiments: ActiveExper
     const remaining = Math.max(0, daysBetween(today, exp.evaluationDate))
     return {
       ...signal,
+      trace: [...(signal.trace ?? []), `Retido pelo teste #${exp.id} (${exp.variable}) até ${exp.evaluationDate}; ação original: ${signal.recommendation}`],
       kind: 'no_action' as const,
       severity: 'info' as const,
       actionType: 'information' as const,

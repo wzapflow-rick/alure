@@ -141,6 +141,15 @@ const PAID_STATUSES = ['paid', 'partially_paid', 'partially_refunded']
 
 /** Recomputes daily sales for the range from paid orders, so cancellations are reflected. */
 export async function rebuildSalesFromOrders(client: PoolClient, marketplaceId: number, source: string, range: DateRange) {
+  // Items saved before their listing existed stay unlinked; resolve them by the listing id
+  // embedded in external_item_id ("<listing>:<variation>").
+  await client.query(
+    `UPDATE order_items oi SET product_channel_id = pc.id, product_id = pc.product_id
+       FROM orders o, product_channels pc
+      WHERE oi.order_id = o.id AND o.marketplace_id = $1 AND oi.product_channel_id IS NULL
+        AND pc.marketplace_id = o.marketplace_id AND pc.external_id = split_part(oi.external_item_id, ':', 1)`,
+    [marketplaceId],
+  )
   await client.query(
     `UPDATE sales_metrics sm SET orders = 0, units = 0, revenue = 0, synced_at = now()
        FROM product_channels pc
@@ -199,23 +208,35 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
         await upsertListing(client, marketplaceId, listing)
       }
     })
-    // Visits are fetched per linked listing, so this must run after linking.
-    const metrics = await adapter.fetchDailyMetrics(range)
+    // Orders are persisted before traffic so a visits failure never discards sales.
     await withTransaction(async (client) => {
       for (const o of orders) {
         await upsertOrder(client, marketplaceId, adapter.code, o)
         processed++
       }
-      for (const m of metrics) {
-        if (await upsertDailyMetric(client, marketplaceId, adapter.code, m)) processed++
-      }
       await rebuildSalesFromOrders(client, marketplaceId, adapter.code, range)
     })
+
+    let warning: string | null = null
+    try {
+      const metrics = await adapter.fetchDailyMetrics(range)
+      warning = (metrics as { warning?: string }).warning ?? null
+      await withTransaction(async (client) => {
+        for (const m of metrics) {
+          if (await upsertDailyMetric(client, marketplaceId, adapter.code, m)) processed++
+        }
+        // Metrics may carry sales too; orders stay the source of truth.
+        await rebuildSalesFromOrders(client, marketplaceId, adapter.code, range)
+      })
+    } catch (error) {
+      warning = `Pedidos salvos; visitas não sincronizadas: ${(error as Error).message}`
+    }
+
     await pool.query(
-      `UPDATE sync_jobs SET status='success', finished_at=now(), records_processed=$2 WHERE id=$1`,
-      [jobId, processed],
+      `UPDATE sync_jobs SET status='success', finished_at=now(), records_processed=$2, error=$3 WHERE id=$1`,
+      [jobId, processed, warning],
     )
-    return { status: 'success' as const, processed }
+    return { status: 'success' as const, processed, warning }
   } catch (error) {
     const message = (error as Error).message
     await pool.query(`UPDATE sync_jobs SET status='error', finished_at=now(), error=$2 WHERE id=$1`, [jobId, message])
