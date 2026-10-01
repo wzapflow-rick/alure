@@ -20,11 +20,18 @@ function createPool() {
   return new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: sslConfig(),
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
-    keepAlive: true,
+    // PgBouncer on the VPS drops bursts above ~10 simultaneous clients; each
+    // serverless instance keeps a small pool so many instances can coexist.
+    max: 3,
+    idleTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 5_000,
+    allowExitOnIdle: true,
   })
+}
+
+function isConnectionError(error: unknown) {
+  const message = (error as Error)?.message ?? ''
+  return /timeout exceeded when trying to connect|Connection terminated|ECONNRESET|ECONNREFUSED/i.test(message)
 }
 
 export const pool: Pool = globalThis.__alurePool ?? createPool()
@@ -34,8 +41,15 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
-  const result = await pool.query<T>(text, params)
-  return result.rows
+  try {
+    const result = await pool.query<T>(text, params)
+    return result.rows
+  } catch (error) {
+    if (!isConnectionError(error)) throw error
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const result = await pool.query<T>(text, params)
+    return result.rows
+  }
 }
 
 export async function queryOne<T extends QueryResultRow = QueryResultRow>(
