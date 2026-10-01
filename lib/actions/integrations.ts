@@ -10,7 +10,7 @@ import { syncRange } from '@/lib/sync/range'
 import { authed, failure, formObject, type ActionState } from '@/lib/actions/shared'
 
 const schema = z.object({
-  code: z.enum(['mercado_livre']),
+  code: z.enum(['mercado_livre', 'shopee']),
   days: z.coerce.number().int().min(1).max(60).default(30),
 })
 

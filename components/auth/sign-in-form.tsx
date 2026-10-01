@@ -24,7 +24,13 @@ export function SignInForm() {
         : await signUp.email({ email, password, name: String(fd.get('name') ?? '') })
     setPending(false)
     if (res.error) {
-      setError(mode === 'in' ? 'E-mail ou senha inválidos.' : 'Não foi possível criar a conta.')
+      setError(
+        mode === 'in'
+          ? 'E-mail ou senha inválidos.'
+          : res.error.status === 403
+            ? 'Este e-mail não está autorizado. Confira a variável ALURE_ALLOWED_EMAILS.'
+            : res.error.message || 'Não foi possível criar a conta.',
+      )
       return
     }
     router.replace('/')
@@ -41,13 +47,13 @@ export function SignInForm() {
       <Field label="E-mail" htmlFor="email">
         <Input id="email" name="email" type="email" required autoComplete="email" />
       </Field>
-      <Field label="Senha" htmlFor="password" hint={mode === 'up' ? 'Mínimo de 8 caracteres.' : undefined}>
+      <Field label="Senha" htmlFor="password" hint={mode === 'up' ? 'Mínimo de 10 caracteres.' : undefined}>
         <Input
           id="password"
           name="password"
           type="password"
           required
-          minLength={8}
+          minLength={mode === 'up' ? 10 : undefined}
           autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
         />
       </Field>

@@ -10,7 +10,7 @@ import { authed, failure, formObject, optionalText, type ActionState } from '@/l
 
 const recSchema = z.object({
   id: z.coerce.number().int().positive(),
-  status: z.enum(['accepted', 'dismissed', 'open']),
+  status: z.enum(['approved', 'dismissed', 'open']),
   note: optionalText,
 })
 

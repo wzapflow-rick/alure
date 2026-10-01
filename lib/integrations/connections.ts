@@ -62,7 +62,7 @@ export async function saveConnection(
  */
 export async function getActiveConnection(
   code: string,
-  refresh: (refreshToken: string) => Promise<TokenSet>,
+  refresh: (refreshToken: string, externalAccountId: string) => Promise<TokenSet>,
 ): Promise<ActiveConnection | null> {
   const mpId = await marketplaceId(code)
   return withTransaction(async (client) => {
@@ -103,7 +103,7 @@ export async function getActiveConnection(
     }
 
     try {
-      const next = await refresh(decryptToken(row.refresh_token_enc))
+      const next = await refresh(decryptToken(row.refresh_token_enc), row.external_account_id)
       const updated = await client.query<{ token_expires_at: Date }>(
         `UPDATE marketplace_connections SET
            access_token_enc = $2, refresh_token_enc = $3,

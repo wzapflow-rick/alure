@@ -28,9 +28,25 @@ const ML_MESSAGES: Record<string, { tone: Tone; text: string }> = {
   error: { tone: 'critical', text: 'Falha ao trocar o código por token. Confira o Redirect URI cadastrado no app do Mercado Livre.' },
 }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string }> }) {
-  const { ml } = await searchParams
-  const mlMessage = ml ? ML_MESSAGES[ml] : null
+const SHOPEE_MESSAGES: Record<string, { tone: Tone; text: string }> = {
+  connected: { tone: 'positive', text: 'Shopee conectada. Clique em "Sincronizar 30 dias" para importar.' },
+  denied: { tone: 'attention', text: 'Autorização cancelada na Shopee.' },
+  invalid_state: { tone: 'critical', text: 'Sessão de autorização inválida ou expirada. Tente conectar de novo.' },
+  missing_env: { tone: 'attention', text: 'Faltam as credenciais SHOPEE_PARTNER_ID, SHOPEE_PARTNER_KEY e SHOPEE_REDIRECT_URI.' },
+  error: { tone: 'critical', text: 'Falha ao trocar o código por token. Confira o Partner ID/Key e o Redirect URL do app na Shopee.' },
+}
+
+const CONNECT_ROUTES: Record<string, { href: string; label: string }> = {
+  mercado_livre: { href: '/api/integrations/mercado-livre/connect', label: 'Conectar Mercado Livre' },
+  shopee: { href: '/api/integrations/shopee/connect', label: 'Conectar Shopee' },
+}
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ ml?: string; shopee?: string }> }) {
+  const { ml, shopee } = await searchParams
+  const banners = [
+    ml && ML_MESSAGES[ml] ? { name: 'Mercado Livre', ...ML_MESSAGES[ml] } : null,
+    shopee && SHOPEE_MESSAGES[shopee] ? { name: 'Shopee', ...SHOPEE_MESSAGES[shopee] } : null,
+  ].filter((b) => b !== null)
   const [settings, rules, marketplaces, connections, logs] = await Promise.all([
     getEngineSettings(),
     listFeeRules(),
@@ -106,12 +122,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </Panel>
 
       <Panel title="Integrações">
-        {mlMessage ? (
-          <div role="status" className="flex items-center gap-3 border-b border-border px-5 py-3 text-sm">
-            <Badge tone={mlMessage.tone}>Mercado Livre</Badge>
-            <span>{mlMessage.text}</span>
+        {banners.map((b) => (
+          <div key={b.name} role="status" className="flex items-center gap-3 border-b border-border px-5 py-3 text-sm">
+            <Badge tone={b.tone}>{b.name}</Badge>
+            <span>{b.text}</span>
           </div>
-        ) : null}
+        ))}
         <div className="grid gap-px bg-border lg:grid-cols-3">
           {ADAPTERS.map((a) => {
             const conn = connections.find((c) => c.code === a.code)
@@ -131,7 +147,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 {missingEnv.length ? (
                   <p className="font-mono text-[11px] leading-relaxed text-attention">Faltam: {missingEnv.join(', ')}</p>
                 ) : null}
-                {a.code === 'mercado_livre' && !missingEnv.length ? (
+                {CONNECT_ROUTES[a.code] && !missingEnv.length ? (
                   <div className="flex flex-wrap items-center gap-3">
                     {conn?.status === 'connected' ? (
                       <>
@@ -140,10 +156,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                       </>
                     ) : (
                       <a
-                        href="/api/integrations/mercado-livre/connect"
+                        href={CONNECT_ROUTES[a.code].href}
                         className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
                       >
-                        {conn?.status === 'expired' ? 'Reconectar' : 'Conectar Mercado Livre'}
+                        {conn?.status === 'expired' ? 'Reconectar' : CONNECT_ROUTES[a.code].label}
                       </a>
                     )}
                   </div>

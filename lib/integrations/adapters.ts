@@ -1,5 +1,6 @@
 import 'server-only'
 import * as meli from '@/lib/integrations/mercado-livre'
+import * as shopee from '@/lib/integrations/shopee'
 import { NotImplementedError, type MarketplaceAdapter } from '@/lib/integrations/types'
 
 // Capability statuses must only move to VERIFIED after testing against the
@@ -35,21 +36,20 @@ export const shopeeAdapter: MarketplaceAdapter = {
   role: 'marketplace',
   requiredEnv: ['SHOPEE_PARTNER_ID', 'SHOPEE_PARTNER_KEY', 'SHOPEE_REDIRECT_URI'],
   capabilities: {
-    oauth: { status: 'NEEDS VERIFICATION', note: 'Open Platform exige app aprovado e assinatura HMAC. Não testado.' },
-    orders: { status: 'NEEDS VERIFICATION', note: 'API de pedidos a mapear após aprovação do app.' },
-    products: { status: 'NEEDS VERIFICATION', note: 'API de produtos a mapear.' },
-    listings: { status: 'NEEDS VERIFICATION', note: 'Status/preço de itens a mapear.' },
-    traffic: { status: 'NEEDS VERIFICATION', note: 'Disponibilidade de visitas por item via API não confirmada.' },
+    oauth: { status: 'NEEDS VERIFICATION', note: 'Implementado (auth_partner + token/get, assinatura HMAC, refresh de 4h). Falta testar com a loja real.' },
+    orders: { status: 'NEEDS VERIFICATION', note: 'Implementado via get_order_list (janelas de 15 dias) + get_order_detail.' },
+    products: { status: 'NOT IMPLEMENTED', note: 'Produtos são cadastrados no ALURE; anúncios são vinculados por SKU.' },
+    listings: { status: 'NEEDS VERIFICATION', note: 'Implementado via get_item_list + get_item_base_info (preço mínimo das variações).' },
+    traffic: { status: 'NOT AVAILABLE', note: 'A Open Platform não expõe visitas por item. Lance manualmente se necessário.' },
     advertising: { status: 'NEEDS VERIFICATION', note: 'Métricas de Ads via API não confirmadas.' },
     promotions: { status: 'NEEDS VERIFICATION', note: 'Descontos/promoções a confirmar.' },
     inventory: { status: 'NEEDS VERIFICATION', note: 'Estoque a confirmar.' },
     fees: { status: 'NEEDS VERIFICATION', note: 'Usar regras de taxa manuais até verificação.' },
   },
-  async fetchOrders() {
-    throw new NotImplementedError('Shopee', 'orders')
-  },
+  fetchListings: () => shopee.fetchListings(),
+  fetchOrders: (range) => shopee.fetchOrders(range),
   async fetchDailyMetrics() {
-    throw new NotImplementedError('Shopee', 'traffic')
+    return []
   },
   async fetchAdvertising() {
     throw new NotImplementedError('Shopee', 'advertising')
