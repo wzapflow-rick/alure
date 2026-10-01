@@ -18,9 +18,9 @@ export async function upsertOrder(client: PoolClient, marketplaceId: number, sou
   for (const item of order.items) {
     await client.query(
       `INSERT INTO order_items (order_id, product_id, product_channel_id, external_item_id, sku, quantity, unit_price, total)
-       SELECT $1, pc.product_id, pc.id, $2, $3, $4, $5, $4 * $5
+       SELECT $1, pc.product_id, pc.id, $2::text, $3::text, $4::int, $5::numeric, $4::int * $5::numeric
          FROM (SELECT 1) one
-    LEFT JOIN product_channels pc ON pc.marketplace_id = $6 AND pc.external_id = $7
+    LEFT JOIN product_channels pc ON pc.marketplace_id = $6 AND pc.external_id = $7::text
        ON CONFLICT (order_id, external_item_id) DO UPDATE SET
          quantity = EXCLUDED.quantity, unit_price = EXCLUDED.unit_price, total = EXCLUDED.total,
          product_id = EXCLUDED.product_id, product_channel_id = EXCLUDED.product_channel_id`,
