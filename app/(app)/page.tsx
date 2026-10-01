@@ -1,6 +1,9 @@
 import Link from 'next/link'
+import { after } from 'next/server'
 import { ArrowUpRight } from 'lucide-react'
-import { Badge, Dot, EXPERIMENT_STATUS_LABEL, VARIABLE_LABEL, experimentTone } from '@/components/ui/badges'
+import { DailyBriefPanel } from '@/components/command/daily-brief'
+import { getLatestAnalysis, getRunningAnalysis, isStale, runAnalysis } from '@/lib/analysis'
+import { Badge, EXPERIMENT_STATUS_LABEL, VARIABLE_LABEL, experimentTone } from '@/components/ui/badges'
 import { EmptyState, Panel } from '@/components/ui/primitives'
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
 import { RunEngineButton } from '@/components/decisions/run-engine-button'
@@ -19,8 +22,15 @@ import { getSessionUser } from '@/lib/session'
 
 export default async function CommandPage() {
   const settings = await getEngineSettings()
-  const [user, kpis, brief, connections, channels, priorities, opportunities, experiments, memory] = await Promise.all([
-    getSessionUser(),
+  const [latest, running] = await Promise.all([getLatestAnalysis(), getRunningAnalysis()])
+  const user = await getSessionUser()
+  const stale = isStale(latest)
+  if (stale && !running) {
+    after(() => runAnalysis('on_open', user).catch(() => undefined))
+  }
+  const analyzing = Boolean(running) || stale
+
+  const [kpis, brief, connections, channels, priorities, opportunities, experiments, memory] = await Promise.all([
     getTodayKpis(),
     getDailySummary(),
     getConnections(),
@@ -46,24 +56,7 @@ export default async function CommandPage() {
         <RunEngineButton />
       </header>
 
-      <section aria-label="Resumo do dia" className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-5 py-5">
-        <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Leitura de hoje</h2>
-        {brief ? (
-          <ul className="flex flex-col gap-2">
-            {brief.content.lines.map((l, i) => (
-              <li key={i} className="flex items-baseline gap-3 text-sm leading-relaxed">
-                <Dot tone={l.tone} />
-                <span className="w-24 shrink-0 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{l.label}</span>
-                <span className="text-pretty">{l.text}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            A leitura de hoje ainda não foi gerada. Clique em <span className="text-foreground">Rodar análise</span>.
-          </p>
-        )}
-      </section>
+      <DailyBriefPanel brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
 
       <section aria-label="Indicadores de hoje" className="grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
         <div className="flex flex-col gap-3 bg-surface px-5 py-5 md:col-span-2">

@@ -8,6 +8,14 @@ Todas as variáveis vão na Vercel, no projeto `alure-six`, em **Settings → En
 
 ---
 
+## 0. Banco: migração 002 (análise autônoma), FAZER PRIMEIRO
+
+Abra o pgAdmin, conecte no banco `alure`, abra o **Query Tool** e execute todo o conteúdo de `db/002_autonomous_analysis.sql`. Ela pode ser executada mais de uma vez sem problema. Sem ela, a tela de Comando e a análise automática dão erro.
+
+Para conferir: `SELECT count(*) FROM analysis_runs;` deve responder `0` (ou mais), e não "relation does not exist".
+
+---
+
 ## 1. Shopee
 
 **Situação:** o cadastro no Open Platform não terminou. O erro `code 57 / verify code fail` significa que o código enviado por e-mail estava errado ou expirado.

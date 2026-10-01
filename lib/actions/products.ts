@@ -17,7 +17,7 @@ import {
   type ActionState,
 } from '@/lib/actions/shared'
 
-const CLASSIFICATIONS = ['motor_de_giro', 'produto_de_margem', 'alto_ticket', 'em_teste', 'observacao', 'sem_classificacao'] as const
+const CLASSIFICATIONS = ['motor_de_giro', 'produto_de_margem', 'alto_ticket', 'em_teste', 'sazonal', 'observacao', 'sem_classificacao'] as const
 
 const productSchema = z.object({
   id: z.coerce.number().int().positive().optional(),

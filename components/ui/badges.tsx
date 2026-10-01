@@ -65,6 +65,7 @@ export const CLASSIFICATION_LABEL: Record<string, string> = {
   produto_de_margem: 'Produto de margem',
   alto_ticket: 'Alto ticket',
   em_teste: 'Em teste',
+  sazonal: 'Sazonal',
   observacao: 'Observação',
   sem_classificacao: 'Sem classificação',
 }

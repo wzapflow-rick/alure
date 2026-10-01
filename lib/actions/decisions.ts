@@ -4,8 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { withTransaction } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
-import { runEngine } from '@/lib/engine/run'
-import { generateDailyBrief } from '@/lib/brief'
+import { runAnalysis } from '@/lib/analysis'
 import { authed, failure, formObject, optionalText, type ActionState } from '@/lib/actions/shared'
 
 const recSchema = z.object({
@@ -75,9 +74,9 @@ export async function updateAlert(_: ActionState, formData: FormData): Promise<A
 export async function runEngineAction(_: ActionState): Promise<ActionState> {
   try {
     const user = await authed()
-    const r = await runEngine(user)
-    await generateDailyBrief(user)
+    const r = await runAnalysis('manual', user)
     revalidatePath('/', 'layout')
+    if (r.skipped) return { ok: true, message: 'Uma análise já está em andamento. Recarregue em instantes.' }
     return {
       ok: true,
       message: `${r.channelsAnalyzed} canais analisados · ${r.created} novas · ${r.resolved} resolvidas.`,
