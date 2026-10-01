@@ -1,0 +1,228 @@
+import 'server-only'
+import { createHash, randomBytes } from 'node:crypto'
+import { getActiveConnection, type TokenSet } from '@/lib/integrations/connections'
+import type { DateRange, NormalizedDailyMetric, NormalizedListing, NormalizedOrder } from '@/lib/integrations/types'
+import { pool } from '@/lib/db'
+
+// Endpoints taken from developers.mercadolivre.com.br (Autenticação e Autorização, Visitas,
+// Gerenciar vendas, Itens). Anything not listed there is intentionally not called.
+const AUTH_URL = 'https://auth.mercadolivre.com.br/authorization'
+const API = 'https://api.mercadolibre.com'
+const PAGE = 50
+const MULTIGET = 20
+
+export function meliConfig() {
+  const clientId = process.env.MELI_CLIENT_ID
+  const clientSecret = process.env.MELI_CLIENT_SECRET
+  const redirectUri = process.env.MELI_REDIRECT_URI
+  if (!clientId || !clientSecret || !redirectUri) return null
+  return { clientId, clientSecret, redirectUri, pkce: process.env.MELI_PKCE === 'true' }
+}
+
+export function createOAuthState() {
+  const state = randomBytes(24).toString('base64url')
+  const verifier = randomBytes(48).toString('base64url')
+  const challenge = createHash('sha256').update(verifier).digest('base64url')
+  return { state, verifier, challenge }
+}
+
+export function buildAuthorizationUrl(state: string, challenge: string) {
+  const cfg = meliConfig()
+  if (!cfg) throw new Error('Credenciais do Mercado Livre ausentes.')
+  const url = new URL(AUTH_URL)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('client_id', cfg.clientId)
+  url.searchParams.set('redirect_uri', cfg.redirectUri)
+  url.searchParams.set('state', state)
+  if (cfg.pkce) {
+    url.searchParams.set('code_challenge', challenge)
+    url.searchParams.set('code_challenge_method', 'S256')
+  }
+  return url.toString()
+}
+
+async function tokenRequest(body: Record<string, string>): Promise<TokenSet & { userId: string }> {
+  const res = await fetch(`${API}/oauth/token`, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(body),
+    cache: 'no-store',
+  })
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    throw new Error(`Mercado Livre OAuth: ${String(json.error ?? res.status)} ${String(json.error_description ?? '')}`.trim())
+  }
+  return {
+    accessToken: String(json.access_token),
+    refreshToken: json.refresh_token ? String(json.refresh_token) : null,
+    expiresIn: Number(json.expires_in ?? 21600),
+    scopes: String(json.scope ?? '').split(' ').filter(Boolean),
+    userId: String(json.user_id),
+  }
+}
+
+export async function exchangeCode(code: string, verifier: string) {
+  const cfg = meliConfig()
+  if (!cfg) throw new Error('Credenciais do Mercado Livre ausentes.')
+  return tokenRequest({
+    grant_type: 'authorization_code',
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    code,
+    redirect_uri: cfg.redirectUri,
+    ...(cfg.pkce ? { code_verifier: verifier } : {}),
+  })
+}
+
+export async function refreshAccessToken(refreshToken: string): Promise<TokenSet> {
+  const cfg = meliConfig()
+  if (!cfg) throw new Error('Credenciais do Mercado Livre ausentes.')
+  return tokenRequest({
+    grant_type: 'refresh_token',
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    refresh_token: refreshToken,
+  })
+}
+
+async function apiGet<T>(path: string, accessToken: string): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (res.status === 429) {
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      continue
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Mercado Livre ${res.status} em ${path.split('?')[0]}: ${text.slice(0, 200)}`)
+    }
+    return (await res.json()) as T
+  }
+  throw new Error(`Mercado Livre: limite de requisições atingido em ${path.split('?')[0]}.`)
+}
+
+export async function fetchMe(accessToken: string) {
+  return apiGet<{ id: number; nickname: string }>('/users/me', accessToken)
+}
+
+async function connection() {
+  const conn = await getActiveConnection('mercado_livre', refreshAccessToken)
+  if (!conn) throw new Error('Mercado Livre não conectado ou token expirado. Conecte novamente em Configurações.')
+  return conn
+}
+
+type MeliItem = {
+  id: string
+  title: string
+  price: number
+  permalink: string
+  status: string
+  seller_custom_field: string | null
+  attributes?: { id: string; value_name: string | null }[]
+}
+
+function itemSku(item: MeliItem) {
+  return item.seller_custom_field?.trim() || item.attributes?.find((a) => a.id === 'SELLER_SKU')?.value_name?.trim() || null
+}
+
+export async function fetchListings(): Promise<NormalizedListing[]> {
+  const conn = await connection()
+  const ids: string[] = []
+  for (let offset = 0; offset < 1000; offset += PAGE) {
+    const page = await apiGet<{ results: string[]; paging: { total: number } }>(
+      `/users/${conn.externalAccountId}/items/search?limit=${PAGE}&offset=${offset}`,
+      conn.accessToken,
+    )
+    ids.push(...page.results)
+    if (offset + PAGE >= page.paging.total) break
+  }
+
+  const listings: NormalizedListing[] = []
+  for (let i = 0; i < ids.length; i += MULTIGET) {
+    const batch = ids.slice(i, i + MULTIGET).join(',')
+    const res = await apiGet<{ code: number; body: MeliItem }[]>(
+      `/items?ids=${batch}&attributes=id,title,price,permalink,status,seller_custom_field,attributes`,
+      conn.accessToken,
+    )
+    for (const { code, body } of res) {
+      if (code !== 200 || !body) continue
+      listings.push({
+        externalListingId: body.id,
+        sku: itemSku(body),
+        title: body.title,
+        url: body.permalink,
+        price: Number(body.price),
+        status: body.status === 'active' ? 'active' : body.status === 'paused' ? 'paused' : 'inactive',
+      })
+    }
+  }
+  return listings
+}
+
+type MeliOrder = {
+  id: number
+  status: string
+  date_created: string
+  total_amount: number
+  order_items: {
+    item: { id: string; seller_sku: string | null; variation_id: number | null }
+    quantity: number
+    unit_price: number
+  }[]
+}
+
+export async function fetchOrders(range: DateRange): Promise<NormalizedOrder[]> {
+  const conn = await connection()
+  const from = encodeURIComponent(`${range.from}T00:00:00.000-03:00`)
+  const to = encodeURIComponent(`${range.to}T23:59:59.999-03:00`)
+  const orders: NormalizedOrder[] = []
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await apiGet<{ results: MeliOrder[]; paging: { total: number } }>(
+      `/orders/search?seller=${conn.externalAccountId}&order.date_created.from=${from}&order.date_created.to=${to}&sort=date_asc&limit=${PAGE}&offset=${offset}`,
+      conn.accessToken,
+    )
+    for (const o of page.results) {
+      orders.push({
+        externalId: String(o.id),
+        status: o.status,
+        orderDate: o.date_created,
+        totalAmount: Number(o.total_amount),
+        items: o.order_items.map((it) => ({
+          externalItemId: `${it.item.id}:${it.item.variation_id ?? ''}`,
+          externalListingId: it.item.id,
+          sku: it.item.seller_sku,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unit_price),
+        })),
+        raw: o,
+      })
+    }
+    if (offset + PAGE >= page.paging.total || page.results.length === 0) break
+  }
+  return orders
+}
+
+/** Daily visits per linked listing. The API serves one item per call, max 150 days. */
+export async function fetchDailyVisits(range: DateRange): Promise<NormalizedDailyMetric[]> {
+  const conn = await connection()
+  const days = Math.min(150, Math.max(1, Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86_400_000) + 1))
+  const { rows } = await pool.query<{ external_id: string }>(
+    `SELECT external_id FROM product_channels
+      WHERE marketplace_id = $1 AND external_id IS NOT NULL AND status <> 'inactive'`,
+    [conn.marketplaceId],
+  )
+  const metrics: NormalizedDailyMetric[] = []
+  for (const { external_id } of rows) {
+    const res = await apiGet<{ results: { date: string; total: number }[] }>(
+      `/items/${encodeURIComponent(external_id)}/visits/time_window?last=${days}&unit=day&ending=${range.to}`,
+      conn.accessToken,
+    )
+    for (const r of res.results ?? []) {
+      metrics.push({ externalListingId: external_id, date: r.date.slice(0, 10), visits: Number(r.total) })
+    }
+  }
+  return metrics
+}
