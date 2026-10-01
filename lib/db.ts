@@ -9,17 +9,37 @@ export function isDbConfigured() {
   return Boolean(process.env.DATABASE_URL)
 }
 
-function sslConfig() {
-  const mode = process.env.DATABASE_SSL
-  if (mode === 'disable') return false
-  if (mode === 'require') return { rejectUnauthorized: false }
-  return undefined
+const SSL_URL_PARAMS = ['sslmode', 'uselibpqcompat', 'sslcert', 'sslkey', 'sslrootcert']
+
+/**
+ * pg warns when the URL carries sslmode=require (it is silently upgraded to verify-full).
+ * The SSL settings are therefore read from the URL once and passed to pg explicitly,
+ * keeping today's behavior: certificate verified unless DATABASE_SSL says otherwise.
+ */
+function parseDatabaseUrl(raw: string | undefined) {
+  if (!raw) return { connectionString: raw, urlSslMode: null as string | null }
+  try {
+    const url = new URL(raw)
+    const urlSslMode = url.searchParams.get('sslmode')
+    for (const param of SSL_URL_PARAMS) url.searchParams.delete(param)
+    return { connectionString: url.toString(), urlSslMode }
+  } catch {
+    return { connectionString: raw, urlSslMode: null }
+  }
+}
+
+function sslConfig(urlSslMode: string | null) {
+  const mode = process.env.DATABASE_SSL ?? urlSslMode
+  if (!mode || mode === 'disable') return false
+  if (mode === 'no-verify' || process.env.DATABASE_SSL === 'require') return { rejectUnauthorized: false }
+  return { rejectUnauthorized: true }
 }
 
 function createPool() {
+  const { connectionString, urlSslMode } = parseDatabaseUrl(process.env.DATABASE_URL)
   return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: sslConfig(),
+    connectionString,
+    ssl: sslConfig(urlSslMode),
     // PgBouncer on the VPS drops bursts above ~10 simultaneous clients; each
     // serverless instance keeps a small pool so many instances can coexist.
     max: 3,
