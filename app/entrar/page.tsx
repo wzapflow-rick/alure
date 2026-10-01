@@ -14,53 +14,60 @@ export default async function SignInPage() {
   if (await getSessionUser()) redirect('/')
 
   return (
-    <main className="flex min-h-dvh bg-brand-deep text-foreground">
-      <section className="relative hidden flex-1 overflow-hidden border-r border-brand-line lg:flex">
-        <Image
-          src="/brand/wallpaper-hd.jpg"
-          alt="ALURE Design & Acabamentos"
-          fill
-          priority
-          sizes="55vw"
-          className="object-cover object-center"
-        />
-        <div className="relative mt-auto flex w-full items-end justify-between gap-6 p-10">
-          <p className="max-w-xs text-sm leading-relaxed text-foreground/70 text-pretty">
-            Centro de comando comercial. Cada decisão de preço, estoque e campanha registrada com evidência.
-          </p>
-          <span className="font-mono text-xs tracking-widest text-brand-teal">ALURE OS</span>
-        </div>
-      </section>
+    <main className="flex min-h-dvh bg-brand-ink text-foreground">
+      <BrandPanel />
 
-      <section className="flex flex-1 items-center justify-center bg-brand-navy px-6 py-12 lg:max-w-xl">
-        <div className="flex w-full max-w-sm flex-col gap-10">
-          <header className="flex animate-rise flex-col gap-6">
-            <Image
-              src="/brand/icon.png"
-              alt=""
-              width={56}
-              height={56}
-              priority
-              className="size-14 rounded-2xl ring-1 ring-brand-line"
-            />
-            <div className="flex flex-col gap-2">
-              <span className="font-mono text-xs tracking-widest text-brand-teal">ALURE OS</span>
-              <h1 className="text-3xl font-semibold tracking-tight text-balance">Bem-vindo de volta.</h1>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Entre com seu e-mail da equipe para abrir o centro de comando.
-              </p>
-            </div>
-          </header>
-
-          <div className="animate-rise [animation-delay:120ms]">
+      <section className="flex min-h-dvh flex-1 flex-col bg-brand-ink px-6 py-10 sm:px-10 md:w-[55%] md:flex-none lg:w-[45%]">
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-[420px] animate-rise">
             <SignInForm />
           </div>
-
-          <p className="animate-rise text-xs leading-relaxed text-muted-foreground/70 [animation-delay:240ms]">
-            Acesso restrito à equipe ALURE Design &amp; Acabamentos.
-          </p>
         </div>
+
+        <footer className="mx-auto flex w-full max-w-[420px] pt-10">
+          <p className="text-xs tracking-wide text-muted-foreground/60">
+            Ambiente interno <span aria-hidden>•</span> ALURE Design &amp; Acabamentos
+          </p>
+        </footer>
       </section>
     </main>
+  )
+}
+
+function BrandPanel() {
+  return (
+    <section
+      aria-label="ALURE Design & Acabamentos"
+      className="relative hidden overflow-hidden border-r border-brand-line/60 bg-brand-deep md:flex md:w-[45%] lg:w-[55%]"
+    >
+      <Image
+        src="/brand/arcs.jpg"
+        alt=""
+        fill
+        priority
+        sizes="55vw"
+        className="object-cover object-right opacity-60"
+      />
+      <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-brand-deep via-brand-deep/70 to-brand-deep/20" />
+      <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-brand-deep/80 via-transparent to-brand-deep/40" />
+
+      <div className="relative flex w-full flex-col items-center justify-center gap-10 px-10">
+        <Image
+          src="/brand/logo-full.png"
+          alt="ALURE Design & Acabamentos"
+          width={932}
+          height={776}
+          priority
+          className="h-auto w-[clamp(200px,30%,280px)] animate-rise"
+        />
+        <p className="max-w-xs animate-rise text-center text-sm leading-relaxed text-foreground/60 text-pretty [animation-delay:120ms]">
+          Inteligência comercial para decisões que realmente importam.
+        </p>
+      </div>
+
+      <span className="absolute bottom-8 left-10 font-mono text-[11px] tracking-[0.3em] text-brand-teal/70">
+        ALURE OS
+      </span>
+    </section>
   )
 }
