@@ -2,6 +2,7 @@ import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import { todayISO } from '@/lib/format'
 import type { Evidence, EvidenceDatum } from '@/lib/engine/rules'
+import type { AIBriefBlock } from '@/lib/ai/schemas'
 
 export type Marketplace = { id: string; code: string; name: string }
 
@@ -449,4 +450,5 @@ export type DailyBrief = {
   opportunities?: BriefItem[]
   actions?: BriefItem[]
   tests?: BriefItem[]
+  ai?: AIBriefBlock
 }

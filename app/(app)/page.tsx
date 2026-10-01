@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { after } from 'next/server'
 import { ArrowUpRight } from 'lucide-react'
 import { DailyBriefPanel } from '@/components/command/daily-brief'
+import { AIReadingPanel } from '@/components/command/ai-reading'
 import { getLatestAnalysis, getRunningAnalysis, isStale, runAnalysis } from '@/lib/analysis'
 import { Badge, EXPERIMENT_STATUS_LABEL, VARIABLE_LABEL, experimentTone } from '@/components/ui/badges'
 import { EmptyState, Panel } from '@/components/ui/primitives'
@@ -76,6 +77,8 @@ export default async function CommandPage() {
       </header>
 
       <DailyBriefPanel brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
+
+      <AIReadingPanel block={brief?.content?.ai} />
 
       <section aria-label="Indicadores de hoje" className="grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
         <div className="flex flex-col gap-3 bg-surface px-5 py-5 md:col-span-2">

@@ -114,7 +114,9 @@ export async function generateDailyBrief(user: SessionUser | null, analysisRunId
      VALUES ($1,$2,$3,$4,$5,$6,$7, now(), $8)
      ON CONFLICT (summary_date) DO UPDATE SET
        revenue = EXCLUDED.revenue, orders = EXCLUDED.orders, aov = EXCLUDED.aov, target = EXCLUDED.target,
-       content = EXCLUDED.content, generated_by = EXCLUDED.generated_by, generated_at = now(),
+       content = EXCLUDED.content || CASE WHEN daily_summaries.content ? 'ai'
+                                          THEN jsonb_build_object('ai', daily_summaries.content->'ai') ELSE '{}'::jsonb END,
+       generated_by = EXCLUDED.generated_by, generated_at = now(),
        analysis_run_id = EXCLUDED.analysis_run_id`,
     [content.date, kpis.revenue, kpis.orders, kpis.aov, settings.dailyTarget, JSON.stringify(content), user?.id ?? null, analysisRunId],
   )

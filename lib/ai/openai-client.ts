@@ -1,0 +1,41 @@
+import 'server-only'
+import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai'
+import type { LanguageModel } from 'ai'
+
+export type AIProvider = 'openai' | 'gateway'
+
+let openai: OpenAIProvider | null = null
+
+export function hasOpenAIKey() {
+  return Boolean(process.env.OPENAI_API_KEY?.trim())
+}
+
+/**
+ * OpenAI direct when OPENAI_API_KEY exists. Otherwise the same OpenAI model is reached through
+ * the Vercel AI Gateway (authenticated by the deployment itself), so the assistant keeps working.
+ * Set AI_REQUIRE_OPENAI_KEY=true to disable that fallback.
+ */
+export function getProvider(): AIProvider | null {
+  if (hasOpenAIKey()) return 'openai'
+  if (process.env.AI_REQUIRE_OPENAI_KEY === 'true') return null
+  return 'gateway'
+}
+
+export function getLanguageModel(modelId: string): { model: LanguageModel; provider: AIProvider } | null {
+  const provider = getProvider()
+  if (provider === 'openai') {
+    openai ??= createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    return { model: openai(modelId), provider }
+  }
+  if (provider === 'gateway') return { model: `openai/${modelId}`, provider }
+  return null
+}
+
+/** Strips anything that looks like a credential before an error message is stored or logged. */
+export function safeErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return message
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer ***')
+    .slice(0, 500)
+}

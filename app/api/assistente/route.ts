@@ -32,6 +32,8 @@ import {
   searchConversations,
 } from '@/lib/assistant/store'
 
+import { prepareModel, recordUsage } from '@/lib/ai/orchestrator'
+
 export const maxDuration = 60
 
 const bodySchema = z.object({
@@ -346,12 +348,32 @@ export async function POST(req: Request) {
 
   const dbContext = await buildDatabaseContext(user, conversationId)
 
+  const prepared = prepareModel('ASSISTANT_QUERY')
+  if (!prepared) {
+    return Response.json(
+      { error: 'IA não configurada. Configure OPENAI_API_KEY nas variáveis de ambiente da Vercel.' },
+      { status: 503 },
+    )
+  }
+  const startedAt = Date.now()
   const result = streamText({
-    model: 'openai/gpt-5.5',
+    model: prepared.model,
     instructions: `${INSTRUCTIONS}\n\n${dbContext}`,
     messages: await convertToModelMessages(messages),
     stopWhen: isStepCount(8),
     tools: buildTools(user, conversationId),
+    onFinish: async (event) => {
+      await recordUsage(prepared, {
+        startedAt,
+        usage: event.totalUsage,
+        providerMetadata: event.providerMetadata,
+        ok: true,
+        userId: user.id,
+      })
+    },
+    onError: async ({ error }) => {
+      await recordUsage(prepared, { startedAt, ok: false, error, userId: user.id })
+    },
   })
 
   return createUIMessageStreamResponse({

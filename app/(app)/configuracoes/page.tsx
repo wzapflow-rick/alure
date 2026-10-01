@@ -10,6 +10,7 @@ import { CAPABILITY_LABELS, type Capability, type CapabilityStatus } from '@/lib
 import { formatBRL, formatDate, formatDateTime, formatPct, todayISO } from '@/lib/format'
 import { getConnections, listAuditLogs, listFeeRules, listMarketplaces } from '@/lib/queries'
 import { getEngineSettings } from '@/lib/settings'
+import { AIPanel } from '@/components/settings/ai-panel'
 
 export const metadata: Metadata = { title: 'Configurações' }
 
@@ -59,6 +60,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader title="Configurações" description="Parâmetros do motor, taxas, integrações e auditoria." />
+
+      <AIPanel />
 
       <Panel title="Parâmetros do motor de decisão">
         <div className="px-5 py-5">
