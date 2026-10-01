@@ -25,6 +25,7 @@ const ML_MESSAGES: Record<string, { tone: Tone; text: string }> = {
   denied: { tone: 'attention', text: 'Autorização cancelada no Mercado Livre.' },
   invalid_state: { tone: 'critical', text: 'Sessão de autorização inválida ou expirada. Tente conectar de novo.' },
   missing_env: { tone: 'attention', text: 'Faltam as credenciais MELI_CLIENT_ID, MELI_CLIENT_SECRET e MELI_REDIRECT_URI.' },
+  missing_key: { tone: 'critical', text: 'Falta a variável TOKEN_ENCRYPTION_KEY (mínimo 32 caracteres) no projeto da Vercel. Adicione e faça um novo deploy.' },
   error: { tone: 'critical', text: 'Falha ao trocar o código por token. Confira o Redirect URI cadastrado no app do Mercado Livre.' },
 }
 

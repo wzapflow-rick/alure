@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
     })
     return done('connected')
   } catch (error) {
-    console.error('[alure] Mercado Livre OAuth callback failed:', (error as Error).message)
-    return done('error')
+    const message = (error as Error).message
+    console.error('[alure] Mercado Livre OAuth callback failed:', message)
+    return done(message.includes('TOKEN_ENCRYPTION_KEY') ? 'missing_key' : 'error')
   }
 }
