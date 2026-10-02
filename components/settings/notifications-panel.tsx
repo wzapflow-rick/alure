@@ -4,7 +4,7 @@ import { InlineAction } from '@/components/forms/action-form'
 import { ReminderForm } from '@/components/settings/reminder-form'
 import { deleteReminder, runNotificationsNow, sendTestNotification, toggleReminder } from '@/lib/actions/notifications'
 import { pool } from '@/lib/db'
-import { evolutionConfig, listGroups, type WhatsAppGroup } from '@/lib/notify/evolution'
+import { connectionState, evolutionConfig, listGroups, type WhatsAppGroup } from '@/lib/notify/evolution'
 import { formatDateTime } from '@/lib/format'
 
 const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
@@ -37,16 +37,17 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export async function NotificationsPanel() {
   const cfg = evolutionConfig()
-  const data = await loadData().catch(() => null)
+  const [data, state] = await Promise.all([loadData().catch(() => null), connectionState()])
+  const connected = state === 'open'
   let groups: WhatsAppGroup[] = []
   let groupsError: string | null = null
-  if (cfg && !cfg.groupJid) {
+  if (cfg && !cfg.groupJid && connected) {
     groups = await listGroups().catch((err: Error) => {
       groupsError = err.message
       return []
     })
   }
-  const ready = Boolean(cfg?.groupJid)
+  const ready = Boolean(cfg?.groupJid) && connected
 
   return (
     <Panel
@@ -62,10 +63,26 @@ export async function NotificationsPanel() {
     >
       <dl className="grid gap-px border-b border-border bg-border md:grid-cols-3">
         <Row label="Evolution API">
-          {cfg ? <Badge tone="positive">Configurada · {cfg.instance}</Badge> : <Badge tone="attention">Faltam EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE</Badge>}
+          {!cfg ? (
+            <Badge tone="attention">Faltam EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE</Badge>
+          ) : connected ? (
+            <Badge tone="positive">Conectada · {cfg.instance}</Badge>
+          ) : state === 'connecting' ? (
+            <Badge tone="attention">Conectando · {cfg.instance}</Badge>
+          ) : state === 'close' ? (
+            <Badge tone="critical">WhatsApp desconectado · leia o QR code no painel da Evolution</Badge>
+          ) : (
+            <Badge tone="critical">Sem resposta da Evolution · confira URL e API key</Badge>
+          )}
         </Row>
         <Row label="Grupo (WHATSAPP_GROUP_JID)">
-          {cfg?.groupJid ? <span className="font-mono text-xs">{cfg.groupJid}</span> : <Badge tone="attention">Não definido</Badge>}
+          {cfg?.groupJid ? (
+            <span className="font-mono text-xs">{cfg.groupJid}</span>
+          ) : cfg?.groupJidInvalid ? (
+            <Badge tone="critical">Formato inválido · precisa terminar em @g.us</Badge>
+          ) : (
+            <Badge tone="attention">Não definido</Badge>
+          )}
         </Row>
         <Row label="Agendamento">
           {process.env.CRON_SECRET ? (
@@ -79,7 +96,9 @@ export async function NotificationsPanel() {
       {cfg && !cfg.groupJid ? (
         <div className="flex flex-col gap-3 border-b border-border px-5 py-4">
           <p className="text-sm text-muted-foreground">
-            Copie o ID do grupo da operação e salve em <span className="font-mono text-foreground">WHATSAPP_GROUP_JID</span>.
+            {connected
+              ? 'Copie o ID do grupo da operação e salve em WHATSAPP_GROUP_JID (Configurações → Vars).'
+              : 'Conecte o WhatsApp da instância para listar os grupos aqui e copiar o ID correto.'}
           </p>
           {groupsError ? <p className="text-sm text-critical">Não consegui listar os grupos: {groupsError}</p> : null}
           {groups.length ? (
