@@ -22,7 +22,7 @@ export const mercadoLivreAdapter: MarketplaceAdapter = {
     inventory: { status: 'NEEDS VERIFICATION', note: 'Estoque disponível por item a confirmar.' },
     fees: { status: 'NEEDS VERIFICATION', note: 'Custos de venda por item a confirmar. Até lá, usar regras de taxa manuais.' },
   },
-  fetchListings: () => meli.fetchListings(),
+  fetchListings: (knownIds) => meli.fetchListings(knownIds),
   fetchOrders: (range) => meli.fetchOrders(range),
   fetchDailyMetrics: (range) => meli.fetchDailyVisits(range),
   async fetchAdvertising() {

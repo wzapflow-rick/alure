@@ -154,17 +154,32 @@ function itemSku(item: MeliItem) {
   return item.seller_custom_field?.trim() || item.attributes?.find((a) => a.id === 'SELLER_SKU')?.value_name?.trim() || null
 }
 
-export async function fetchListings(): Promise<NormalizedListing[]> {
+export const listingFetchStats = { searchTotal: 0, fromSearch: 0, fromKnownIds: 0 }
+
+/**
+ * Offset pagination stops at 1000 items on /items/search, so listings beyond that were never
+ * refreshed. Scan mode has no such cap; ids already stored are re-read directly as a safety net.
+ */
+export async function fetchListings(knownIds: string[] = []): Promise<NormalizedListing[]> {
   const conn = await connection()
-  const ids: string[] = []
-  for (let offset = 0; offset < 1000; offset += PAGE) {
-    const page = await apiGet<{ results: string[]; paging: { total: number } }>(
-      `/users/${conn.externalAccountId}/items/search?limit=${PAGE}&offset=${offset}`,
+  const found = new Set<string>()
+  let scrollId: string | null = null
+  for (let page = 0; page < 500; page++) {
+    const scroll = scrollId ? `&scroll_id=${encodeURIComponent(scrollId)}` : ''
+    const res: { results: string[]; scroll_id?: string; paging?: { total: number } } = await apiGet(
+      `/users/${conn.externalAccountId}/items/search?search_type=scan&limit=100${scroll}`,
       conn.accessToken,
     )
-    ids.push(...page.results)
-    if (offset + PAGE >= page.paging.total) break
+    if (page === 0) listingFetchStats.searchTotal = res.paging?.total ?? 0
+    if (!res.results?.length) break
+    for (const id of res.results) found.add(id)
+    if (!res.scroll_id) break
+    scrollId = res.scroll_id
   }
+  listingFetchStats.fromSearch = found.size
+  const extra = knownIds.filter((id) => !found.has(id))
+  listingFetchStats.fromKnownIds = extra.length
+  const ids = [...found, ...extra]
 
   const listings: NormalizedListing[] = []
   for (let i = 0; i < ids.length; i += MULTIGET) {

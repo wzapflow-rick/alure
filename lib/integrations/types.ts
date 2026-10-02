@@ -82,7 +82,7 @@ export interface MarketplaceAdapter {
   role: 'marketplace' | 'operational_hub'
   requiredEnv: string[]
   capabilities: Record<Capability, CapabilityInfo>
-  fetchListings?(): Promise<NormalizedListing[]>
+  fetchListings?(knownIds?: string[]): Promise<NormalizedListing[]>
   fetchOrders(range: DateRange): Promise<NormalizedOrder[]>
   fetchDailyMetrics(range: DateRange): Promise<NormalizedDailyMetric[]>
   fetchAdvertising(range: DateRange): Promise<NormalizedAdMetric[]>

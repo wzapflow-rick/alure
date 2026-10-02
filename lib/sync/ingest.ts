@@ -217,7 +217,25 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     let processed = 0
     // Listings first: orders and visits resolve to product_channels by external id.
     if (adapter.fetchListings) {
-      const listings = await adapter.fetchListings()
+      const known = await pool.query<{ external_id: string }>(
+        'SELECT external_id FROM product_channels WHERE marketplace_id = $1 AND external_id IS NOT NULL',
+        [marketplaceId],
+      )
+      const listings = await adapter.fetchListings(known.rows.map((r) => r.external_id))
+      if (marketplaceCode === 'mercado_livre') {
+        const { listingFetchStats } = await import('@/lib/integrations/mercado-livre')
+        await pool.query(`UPDATE sync_jobs SET cursor = cursor || $2::jsonb WHERE id = $1`, [
+          jobId,
+          JSON.stringify({
+            anuncios: {
+              total_busca: listingFetchStats.searchTotal,
+              lidos_busca: listingFetchStats.fromSearch,
+              relidos_por_id: listingFetchStats.fromKnownIds,
+              retornados: listings.length,
+            },
+          }),
+        ])
+      }
       const catalogColumn = await pool.query<{ ok: boolean }>(
         `SELECT EXISTS (SELECT 1 FROM information_schema.columns
                          WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
