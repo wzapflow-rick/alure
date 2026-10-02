@@ -108,7 +108,30 @@ export async function fetchMe(accessToken: string) {
   return apiGet<{ id: number; nickname: string }>('/users/me', accessToken)
 }
 
-async function connection() {
+export type RawCall = { endpoint: string; status: number; durationMs: number; body: unknown }
+
+/** Never throws: diagnostics need the real HTTP status (403/404) instead of an exception. */
+export async function apiGetRaw(path: string, accessToken: string): Promise<RawCall> {
+  const started = Date.now()
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (res.status === 429 && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      continue
+    }
+    const text = await res.text().catch(() => '')
+    let body: unknown = text
+    try {
+      body = JSON.parse(text)
+    } catch {}
+    return { endpoint: path, status: res.status, durationMs: Date.now() - started, body }
+  }
+}
+
+export async function connection() {
   const conn = await getActiveConnection('mercado_livre', refreshAccessToken)
   if (!conn) throw new Error('Mercado Livre não conectado ou token expirado. Conecte novamente em Configurações.')
   return conn
@@ -123,6 +146,8 @@ type MeliItem = {
   available_quantity?: number | null
   seller_custom_field: string | null
   attributes?: { id: string; value_name: string | null }[]
+  catalog_listing?: boolean | null
+  catalog_product_id?: string | null
 }
 
 function itemSku(item: MeliItem) {
@@ -145,7 +170,7 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
   for (let i = 0; i < ids.length; i += MULTIGET) {
     const batch = ids.slice(i, i + MULTIGET).join(',')
     const res = await apiGet<{ code: number; body: MeliItem }[]>(
-      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes`,
+      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes,catalog_listing,catalog_product_id`,
       conn.accessToken,
     )
     for (const { code, body } of res) {
@@ -158,6 +183,8 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
         price: Number(body.price),
         status: body.status === 'active' ? 'active' : body.status === 'paused' ? 'paused' : 'inactive',
         availableQuantity: typeof body.available_quantity === 'number' ? body.available_quantity : null,
+        catalogListing: Boolean(body.catalog_listing),
+        catalogProductId: body.catalog_product_id ?? null,
       })
     }
   }

@@ -19,6 +19,7 @@ const PRESSURE_TONE: Record<PressureLevel, 'positive' | 'attention' | 'critical'
   none: 'positive',
   light: undefined,
   relevant: 'attention',
+  unknown_floor: 'attention',
   unviable: 'critical',
 }
 

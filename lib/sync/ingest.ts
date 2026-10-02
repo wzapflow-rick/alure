@@ -76,12 +76,21 @@ async function saveStock(client: PoolClient, channelId: string, qty: number | nu
  * Links a marketplace listing to an ALURE product by SKU. Listings without a matching SKU
  * are skipped (never auto-creating products). Price changes are recorded in price_history.
  */
-export async function upsertListing(client: PoolClient, marketplaceId: number, l: NormalizedListing) {
+export async function upsertListing(
+  client: PoolClient,
+  marketplaceId: number,
+  l: NormalizedListing,
+  opts: { linkOnly?: boolean } = {},
+) {
   const existing = await client.query<{ id: string; current_price: string }>(
     'SELECT id, current_price FROM product_channels WHERE marketplace_id = $1 AND external_id = $2',
     [marketplaceId, l.externalListingId],
   )
   const row = existing.rows[0]
+
+  // Order-derived listings carry a placeholder status/price; they must never overwrite
+  // what the listings endpoint just reported (this marked active listings as inactive).
+  if (row && opts.linkOnly) return true
 
   if (row) {
     await client.query(
@@ -209,18 +218,39 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     // Listings first: orders and visits resolve to product_channels by external id.
     if (adapter.fetchListings) {
       const listings = await adapter.fetchListings()
+      const catalogColumn = await pool.query<{ ok: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
+      )
       await withTransaction(async (client) => {
         for (const l of listings) {
           if (await upsertListing(client, marketplaceId, l)) processed++
+          if (catalogColumn.rows[0]?.ok && l.catalogListing !== undefined) {
+            await client.query(
+              `UPDATE product_channels SET catalog_listing = $3, catalog_product_id = $4
+                WHERE marketplace_id = $1 AND external_id = $2`,
+              [marketplaceId, l.externalListingId, l.catalogListing, l.catalogProductId ?? null],
+            )
+          }
         }
       })
+    }
+
+    let competitionWarning: string | null = null
+    if (marketplaceCode === 'mercado_livre') {
+      try {
+        const { collectCatalogWinners } = await import('@/lib/integrations/meli-competition')
+        competitionWarning = (await collectCatalogWinners(marketplaceId)).skipped
+      } catch (error) {
+        competitionWarning = `Vencedor do catálogo não coletado: ${(error as Error).message}`
+      }
     }
 
     const orders = await adapter.fetchOrders(range)
     // Sold listings may be closed and absent from the listings search; link them from the order itself.
     await withTransaction(async (client) => {
       for (const listing of listingsFromOrders(orders)) {
-        await upsertListing(client, marketplaceId, listing)
+        await upsertListing(client, marketplaceId, listing, { linkOnly: true })
       }
     })
     // Orders are persisted before traffic so a visits failure never discards sales.
@@ -246,6 +276,7 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     } catch (error) {
       warning = `Pedidos salvos; visitas não sincronizadas: ${(error as Error).message}`
     }
+    if (competitionWarning) warning = warning ? `${warning} · ${competitionWarning}` : competitionWarning
 
     await pool.query(
       `UPDATE sync_jobs SET status='success', finished_at=now(), records_processed=$2, error=$3 WHERE id=$1`,

@@ -1019,11 +1019,12 @@ function fmtNum(n: number, digits: number) {
 type CompetitivePerf = { convVsBase: number | null; ordersVsBase: number | null; baseOrders: number | null }
 
 /** Operational class to pick the next diagnosis — not a score. */
-export type PressureLevel = 'none' | 'light' | 'relevant' | 'unviable'
+export type PressureLevel = 'none' | 'light' | 'relevant' | 'unknown_floor' | 'unviable'
 export const PRESSURE_LABEL: Record<PressureLevel, string> = {
   none: 'Sem pressão competitiva identificada',
   light: 'Pressão competitiva leve',
   relevant: 'Pressão competitiva relevante',
+  unknown_floor: 'Pressão competitiva relevante · piso econômico desconhecido',
   unviable: 'Pressão competitiva + preço economicamente inviável',
 }
 
@@ -1079,7 +1080,16 @@ export function competitivePressure(
   const viable = floor === null ? null : rival.price >= floor
   const isolatedGap = isolated ? ((c.price - cheapest.price) / cheapest.price) * 100 : null
 
-  const level: PressureLevel = gap <= 0 ? 'none' : gap < s.competitivePriceGapPct ? 'light' : viable === false ? 'unviable' : 'relevant'
+  const level: PressureLevel =
+    gap <= 0
+      ? 'none'
+      : gap < s.competitivePriceGapPct
+        ? 'light'
+        : viable === null
+          ? 'unknown_floor'
+          : viable
+            ? 'relevant'
+            : 'unviable'
 
   const floorLabel = p.status === 'ok' && p.minMarginPrice !== null ? `margem mínima de ${formatPct(p.minMarginPct ?? 0)}` : 'ponto de equilíbrio'
   const belowBreakEven = p.status === 'ok' && p.breakEvenPrice !== null && rival.price < p.breakEvenPrice
@@ -1157,7 +1167,35 @@ function evaluateCompetition(
   const common = { ...ids, title, data: [...commonData, ...pr.data] }
   const economy: Evidence = { label: 'INTERPRETAÇÃO', text: pr.economyText }
 
-  if (pr.level === 'relevant' || pr.level === 'unviable') {
+  if (pr.level === 'relevant' || pr.level === 'unviable' || pr.level === 'unknown_floor') {
+    if (weakening && pr.level === 'unknown_floor') {
+      return {
+        ...common,
+        fingerprint: `R11:${c.productChannelId}`,
+        ruleCode: 'R11_COMPETITIVE',
+        kind: 'opportunity',
+        severity: 'attention',
+        actionType: 'recommendation',
+        confidence: 'low',
+        score: score('attention', Math.max(0, (perf.baseOrders ?? 0) * c.price - c.revenueCur), c.windowDays, s.dailyTarget),
+        issue: `Pressão competitiva relevante (oferta ${formatPct(gap)} abaixo) com desempenho enfraquecendo — piso econômico desconhecido.`,
+        evidence: [
+          ...pr.facts,
+          { label: 'FATO', text: perfText },
+          economy,
+          { label: 'HIPÓTESE', text: 'A diferença de preço pode estar contribuindo para a queda — não comprovado.' },
+        ],
+        recommendation: `Não mexer no preço até cadastrar ${p.status === 'missing_cost' ? 'o custo (lote) do produto' : 'a regra de taxa vigente'}. Enquanto isso: ${alternativeLevers(c, null)}.`,
+        reason: 'Sem piso econômico não dá para saber se acompanhar a oferta gera prejuízo.',
+        objective: 'Conhecer o piso antes de qualquer decisão de preço.',
+        suggestsChange: false,
+        alert: {
+          type: 'competitive_pressure',
+          severity: 'attention',
+          message: `${title}: ${PRESSURE_LABEL[pr.level].toLowerCase()} — oferta de ${formatBRL(rival.price)} vs nosso ${formatBRL(c.price)}.`,
+        },
+      }
+    }
     if (weakening) {
       const unviable = pr.level === 'unviable'
       const atStake = Math.max(0, (perf.baseOrders ?? 0) * c.price - c.revenueCur)
@@ -1393,6 +1431,9 @@ function evaluatePaceDrop(c: ChannelStats, s: EngineSettings, ids: SignalIds, ti
     } else if (pr.level === 'relevant') {
       reading += ' Há pressão competitiva relevante e o preço ainda tem espaço econômico.'
       next += ` Antes de reduzir preço, ${alternativeLevers(c, trafficDown)}.`
+    } else if (pr.level === 'unknown_floor') {
+      reading += ' Há pressão competitiva relevante, mas o piso econômico é desconhecido.'
+      next += ` Cadastrar custo e taxa antes de avaliar preço; enquanto isso, ${alternativeLevers(c, trafficDown)}.`
     } else {
       reading += ` ${PRESSURE_LABEL[pr.level]}.`
     }
