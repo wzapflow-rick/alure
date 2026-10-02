@@ -1027,7 +1027,7 @@ export const PRESSURE_LABEL: Record<PressureLevel, string> = {
   unviable: 'Pressão competitiva + preço economicamente inviável',
 }
 
-type Pressure = {
+export type Pressure = {
   level: PressureLevel
   rival: CompetitorOffer
   gap: number
@@ -1060,7 +1060,10 @@ function median(values: number[]) {
  * Competitor price vs our price vs our floor (cost + fees + minimum margin).
  * A single offer far below the others is reported as isolated, never as "the market".
  */
-function competitivePressure(c: ChannelStats, s: EngineSettings): Pressure | null {
+export function competitivePressure(
+  c: Pick<ChannelStats, 'competition' | 'price' | 'pricing'>,
+  s: Pick<EngineSettings, 'competitivePriceGapPct'>,
+): Pressure | null {
   const comp = c.competition
   if (!comp || c.price <= 0 || comp.cheapest.price <= 0) return null
   const cheapest = comp.cheapest
