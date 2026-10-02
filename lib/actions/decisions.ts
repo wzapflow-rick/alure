@@ -7,6 +7,7 @@ import { withTransaction } from '@/lib/db'
 import { ruleMeta } from '@/lib/engine/rules'
 import { logAudit } from '@/lib/audit'
 import { runAnalysis } from '@/lib/analysis'
+import { hasAlertHistory } from '@/lib/engine/run'
 import { authed, failure, formObject, optionalText, type ActionState } from '@/lib/actions/shared'
 
 /**
@@ -91,15 +92,25 @@ export async function updateRecommendation(_: ActionState, formData: FormData): 
 
 const alertSchema = z.object({
   id: z.coerce.number().int().positive(),
-  status: z.enum(['acknowledged', 'resolved']),
+  status: z.enum(['acknowledged', 'resolved', 'dismissed']),
 })
 
 export async function updateAlert(_: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const user = await authed()
     const input = alertSchema.parse(formObject(formData))
+    const historyEnabled = await hasAlertHistory()
     await withTransaction(async (client) => {
-      await client.query('UPDATE alerts SET status = $2, updated_at = now() WHERE id = $1', [input.id, input.status])
+      const { rows } = await client.query<{ severity: string }>(
+        'UPDATE alerts SET status = $2, updated_at = now() WHERE id = $1 RETURNING severity',
+        [input.id, input.status],
+      )
+      if (historyEnabled && rows[0]) {
+        await client.query(
+          'INSERT INTO alert_events (alert_id, event, severity, user_id) VALUES ($1,$2,$3,$4)',
+          [input.id, input.status, rows[0].severity, user.id],
+        )
+      }
       await logAudit({ user, action: `alert.${input.status}`, entityType: 'alerts', entityId: input.id }, client)
     })
     revalidatePath('/', 'layout')

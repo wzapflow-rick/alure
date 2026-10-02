@@ -18,6 +18,10 @@ const ENGINE_FIELDS: { name: string; label: string; hint?: string }[] = [
   { name: 'significantChangePct', label: 'Variação significativa (%)', hint: 'Desvio frente à base histórica do próprio produto.' },
   { name: 'minOrdersHistory', label: 'Pedidos mínimos no histórico', hint: 'Abaixo disso a evidência é tratada como fraca.' },
   { name: 'minHistoryDays', label: 'Dias mínimos de histórico', hint: 'Antes disso: dados insuficientes, sem recomendação.' },
+  { name: 'stockRiskDays', label: 'Zona de risco de ruptura (dias de cobertura)', hint: 'Cobertura = estoque ÷ velocidade de venda. Quantidade isolada não gera alerta.' },
+  { name: 'stockCriticalDays', label: 'Ruptura iminente (dias de cobertura)', hint: 'Abaixo disso, produto relevante vira Alto impacto.' },
+  { name: 'competitivePriceGapPct', label: 'Diferença relevante vs concorrente (%)', hint: 'Abaixo disso, a diferença de preço é ignorada.' },
+  { name: 'competitorFreshDays', label: 'Validade da observação de concorrente (dias)', hint: 'Observações mais antigas não entram na análise.' },
 ]
 
 export function EngineSettingsForm({ values }: { values: Record<string, number> }) {

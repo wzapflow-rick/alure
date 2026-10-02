@@ -16,7 +16,7 @@ export default async function AlertsPage() {
     <>
       <PageHeader
         title="Alertas"
-        description="Gerados pelo motor a partir de regras determinísticas. Resolvidos somem até a condição voltar."
+        description="Gerados pelo motor a partir de regras determinísticas. Resolvidos somem até a condição voltar. Descartados só reaparecem se a gravidade aumentar."
         action={<RunEngineButton />}
       />
       <Panel>
@@ -39,6 +39,7 @@ export default async function AlertsPage() {
                 <div className="flex shrink-0 gap-2">
                   {a.status === 'open' ? <InlineAction action={updateAlert} fields={{ id: a.id, status: 'acknowledged' }} label="Ciente" /> : null}
                   <InlineAction action={updateAlert} fields={{ id: a.id, status: 'resolved' }} label="Resolver" variant="secondary" />
+                  <InlineAction action={updateAlert} fields={{ id: a.id, status: 'dismissed' }} label="Descartar" variant="secondary" />
                 </div>
               </li>
             ))}

@@ -19,6 +19,7 @@ import {
   type StrategicMemory,
   type ChannelStats,
   type Classification,
+  type Competition,
   type Signal,
 } from '@/lib/engine/rules'
 
@@ -55,6 +56,74 @@ type ChannelRow = {
   price_change_date: string | null
   price_change_previous: string | null
   price_change_price: string | null
+  units_7: string
+  units_14: string
+  units_28: string
+  revenue_14: string
+  revenue_28: string
+  sale_days_14: string
+  sale_days_28: string
+}
+
+type CompetitionRow = {
+  product_channel_id: string
+  offers: string
+  competitor_name: string
+  price: string
+  free_shipping: boolean | null
+  observed_on: string
+  previous_price: string | null
+}
+
+const severityRank = (s: string) => (s === 'critical' ? 3 : s === 'attention' ? 2 : 1)
+const SEVERITY_RANK_SQL = (col: string) => `(CASE ${col} WHEN 'critical' THEN 3 WHEN 'attention' THEN 2 ELSE 1 END)`
+
+/** Alert history comes from migration 007; before it runs, events are simply not recorded. */
+export async function hasAlertHistory() {
+  const rows = await query<{ ok: boolean }>(`SELECT to_regclass('public.alert_events') IS NOT NULL AS ok`)
+  return Boolean(rows[0]?.ok)
+}
+
+/** Competitor observations come from migration 007; before it runs, competition is unknown. */
+async function loadCompetition(today: string, freshDays: number): Promise<Map<number, Competition>> {
+  const exists = await query<{ ok: boolean }>(`SELECT to_regclass('public.competitor_offers') IS NOT NULL AS ok`)
+  if (!exists[0]?.ok) return new Map()
+  const rows = await query<CompetitionRow>(
+    `WITH latest AS (
+       SELECT DISTINCT ON (product_channel_id, lower(competitor_name))
+              product_channel_id, competitor_name, price, free_shipping, observed_on,
+              LEAD(price) OVER (PARTITION BY product_channel_id, lower(competitor_name)
+                                ORDER BY observed_on DESC, id DESC) AS previous_price
+         FROM competitor_offers
+        WHERE observed_on <= $1::date
+        ORDER BY product_channel_id, lower(competitor_name), observed_on DESC, id DESC
+     ), fresh AS (
+       SELECT * FROM latest WHERE observed_on > $1::date - $2::int
+     )
+     SELECT DISTINCT ON (product_channel_id)
+            product_channel_id,
+            COUNT(*) OVER (PARTITION BY product_channel_id) AS offers,
+            competitor_name, price, free_shipping,
+            to_char(observed_on,'YYYY-MM-DD') AS observed_on, previous_price
+       FROM fresh
+      ORDER BY product_channel_id, price ASC`,
+    [today, freshDays],
+  )
+  return new Map(
+    rows.map((r) => [
+      Number(r.product_channel_id),
+      {
+        offers: Number(r.offers),
+        cheapest: {
+          name: r.competitor_name,
+          price: Number(r.price),
+          freeShipping: r.free_shipping,
+          observedOn: r.observed_on,
+          previousPrice: toNumber(r.previous_price),
+        },
+      },
+    ]),
+  )
 }
 
 /** Days of [start, end] covered by data that begins at firstDate. */
@@ -73,7 +142,7 @@ async function hasStockColumn() {
   return Boolean(rows[0]?.ok)
 }
 
-export async function loadChannelStats(today: string, windowDays: number, targetMarginPct: number) {
+export async function loadChannelStats(today: string, windowDays: number, targetMarginPct: number, competitorFreshDays = 14) {
   const stockSelect = (await hasStockColumn()) ? 'pc.available_quantity' : 'NULL::int AS available_quantity'
   const rows = await query<ChannelRow>(
     `SELECT pc.id AS product_channel_id, pc.product_id, pc.marketplace_id, m.name AS marketplace_name,
@@ -87,6 +156,9 @@ export async function loadChannelStats(today: string, windowDays: number, target
             COALESCE(s.orders_base,0) AS orders_base, COALESCE(s.revenue_base,0) AS revenue_base,
             to_char(s.last_sale_date,'YYYY-MM-DD') AS last_sale_date,
             COALESCE(s.sale_days_90,0) AS sale_days_90,
+            COALESCE(s.units_7,0) AS units_7, COALESCE(s.units_14,0) AS units_14, COALESCE(s.units_28,0) AS units_28,
+            COALESCE(s.revenue_14,0) AS revenue_14, COALESCE(s.revenue_28,0) AS revenue_28,
+            COALESCE(s.sale_days_14,0) AS sale_days_14, COALESCE(s.sale_days_28,0) AS sale_days_28,
             to_char(t.first_date,'YYYY-MM-DD') AS first_traffic_date,
             t.visits_cur, t.visits_prev, t.visits_base,
             to_char(ph.changed_at AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS price_change_date,
@@ -109,7 +181,14 @@ export async function loadChannelStats(today: string, windowDays: number, target
                SUM(orders)  FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS orders_base,
                SUM(revenue) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS revenue_base,
                MAX(metric_date) FILTER (WHERE orders > 0)                                                          AS last_sale_date,
-               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 90)                                  AS sale_days_90
+               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 90)                                  AS sale_days_90,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date > $1::date - 7)                    AS units_7,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date > $1::date - 14)                   AS units_14,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date > $1::date - 28)                   AS units_28,
+               SUM(revenue) FILTER (WHERE metric_date > $1::date - 14)                                             AS revenue_14,
+               SUM(revenue) FILTER (WHERE metric_date > $1::date - 28)                                             AS revenue_28,
+               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 14)                                  AS sale_days_14,
+               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 28)                                  AS sale_days_28
           FROM sales_metrics
          WHERE product_channel_id = pc.id AND metric_date <= $1::date
        ) s ON true
@@ -139,6 +218,7 @@ export async function loadChannelStats(today: string, windowDays: number, target
   )
 
   const feeRules = await getActiveFeeRules(today)
+  const competition = await loadCompetition(today, competitorFreshDays)
 
   return rows.map<ChannelStats & { category: string | null }>((r) => {
     const marketplaceId = Number(r.marketplace_id)
@@ -190,6 +270,14 @@ export async function loadChannelStats(today: string, windowDays: number, target
         feeRules,
         targetMarginPct,
       ),
+      units7: Number(r.units_7),
+      units14: Number(r.units_14),
+      units28: Number(r.units_28),
+      revenue14: Number(r.revenue_14),
+      revenue28: Number(r.revenue_28),
+      saleDays14: Number(r.sale_days_14),
+      saleDays28: Number(r.sale_days_28),
+      competition: competition.get(Number(r.product_channel_id)) ?? null,
     }
   })
 }
@@ -506,7 +594,7 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
   const today = todayISO()
   const settings = await getEngineSettings()
   const [channels, experiments, memories] = await Promise.all([
-    loadChannelStats(today, settings.windowDays, settings.targetMarginPct),
+    loadChannelStats(today, settings.windowDays, settings.targetMarginPct, settings.competitorFreshDays),
     loadExperiments(today),
     loadMemories(),
   ])
@@ -550,6 +638,7 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       .map((sg) => ({ fingerprint: sg.fingerprint, rule: sg.ruleCode, steps: sg.trace })),
   }
 
+  const historyEnabled = await hasAlertHistory()
   const summary = await withTransaction(async (client) => {
     await client.query(
       `UPDATE experiments SET status = 'ready_for_review', updated_at = now()
@@ -592,18 +681,44 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       }
 
       if (s.alert) {
-        await client.query(
+        const alertFingerprint = `${s.alert.type}:${s.productChannelId ?? s.experimentId}`
+        const before = await client.query<{ status: string; severity: string }>(
+          `SELECT status, severity FROM alerts WHERE fingerprint = $1`,
+          [alertFingerprint],
+        )
+        // Same event updates the existing alert. Dismissed/acknowledged only come back on escalation.
+        const { rows: alertRows } = await client.query<{ id: string; status: string }>(
           `INSERT INTO alerts (fingerprint, alert_type, severity, product_id, product_channel_id, marketplace_id, experiment_id, message, data)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            ON CONFLICT (fingerprint) DO UPDATE SET
-             severity = EXCLUDED.severity, message = EXCLUDED.message, data = EXCLUDED.data, updated_at = now(),
-             status = CASE WHEN alerts.status = 'resolved' THEN 'open' ELSE alerts.status END`,
+             status = CASE
+               WHEN alerts.status = 'resolved' THEN 'open'
+               WHEN alerts.status IN ('dismissed','acknowledged')
+                    AND ${SEVERITY_RANK_SQL('EXCLUDED.severity')} > ${SEVERITY_RANK_SQL('alerts.severity')} THEN 'open'
+               ELSE alerts.status END,
+             severity = EXCLUDED.severity, message = EXCLUDED.message, data = EXCLUDED.data, updated_at = now()
+           RETURNING id, status`,
           [
-            `${s.alert.type}:${s.productChannelId ?? s.experimentId}`,
+            alertFingerprint,
             s.alert.type, s.alert.severity, s.productId, s.productChannelId, s.marketplaceId,
-            s.experimentId, s.alert.message, JSON.stringify({ evidence: s.evidence, data: s.data }),
+            s.experimentId, s.alert.message,
+            JSON.stringify({ evidence: s.evidence, data: s.data, rule: s.ruleCode, recommendation: s.recommendation }),
           ],
         )
+        const prev = before.rows[0]
+        const event = !prev
+          ? 'created'
+          : prev.status === 'resolved'
+            ? 'reopened'
+            : severityRank(s.alert.severity) > severityRank(prev.severity)
+              ? 'escalated'
+              : null
+        if (event && alertRows[0] && historyEnabled) {
+          await client.query(
+            `INSERT INTO alert_events (alert_id, event, severity, user_id, data) VALUES ($1,$2,$3,$4,$5)`,
+            [alertRows[0].id, event, s.alert.severity, user?.id ?? null, JSON.stringify({ rule: s.ruleCode, message: s.alert.message, data: s.data })],
+          )
+        }
       }
     }
 
@@ -617,11 +732,20 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
         WHERE status = 'open' AND NOT (fingerprint = ANY($1::text[]))`,
       [fingerprints],
     )
-    await client.query(
+    const autoResolved = await client.query<{ id: string; severity: string }>(
       `UPDATE alerts SET status = 'resolved', updated_at = now()
-        WHERE status <> 'resolved' AND NOT (fingerprint = ANY($1::text[]))`,
+        WHERE status <> 'resolved' AND NOT (fingerprint = ANY($1::text[]))
+        RETURNING id, severity`,
       [alertFingerprints],
     )
+    if (historyEnabled) {
+      for (const a of autoResolved.rows) {
+        await client.query(
+          `INSERT INTO alert_events (alert_id, event, severity, data) VALUES ($1,'auto_resolved',$2,$3)`,
+          [a.id, a.severity, JSON.stringify({ reason: 'Condição deixou de ser detectada pelo motor.' })],
+        )
+      }
+    }
 
     const outcomes = await recordOutcomes(client, today)
 

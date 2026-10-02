@@ -15,6 +15,10 @@ export const engineSettingsSchema = z.object({
   significantChangePct: z.coerce.number().min(1).max(500),
   minOrdersHistory: z.coerce.number().int().min(1),
   minHistoryDays: z.coerce.number().int().min(1),
+  stockRiskDays: z.coerce.number().min(1).max(60),
+  stockCriticalDays: z.coerce.number().min(0.5).max(30),
+  competitivePriceGapPct: z.coerce.number().min(1).max(100),
+  competitorFreshDays: z.coerce.number().int().min(1).max(90),
 })
 
 export type EngineSettings = z.infer<typeof engineSettingsSchema>
@@ -32,6 +36,10 @@ export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
   significantChangePct: 30,
   minOrdersHistory: 5,
   minHistoryDays: 14,
+  stockRiskDays: 7,
+  stockCriticalDays: 3,
+  competitivePriceGapPct: 5,
+  competitorFreshDays: 14,
 }
 
 export const ENGINE_SETTINGS_KEY = 'engine'
