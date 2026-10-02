@@ -345,13 +345,24 @@ export async function collectCatalogWinners(marketplaceId: number) {
   )
   const today = todayISO()
   let recorded = 0
+  const details: { anuncio: string; resultado: string }[] = []
   for (const ch of channels.rows) {
     const call = await apiGetRaw(`/items/${ch.external_id}/price_to_win?siteId=MLB&version=v2`, conn.accessToken)
-    if (!ok(call)) continue
+    if (!ok(call)) {
+      details.push({ anuncio: ch.external_id, resultado: `price_to_win HTTP ${call.status}` })
+      continue
+    }
     const body = call.body as Record<string, any>
     const winnerId: string | null = body?.winner?.item_id ?? null
     const winnerPrice = num(body?.winner?.price)
-    if (!winnerId || !winnerPrice || winnerId === ch.external_id) continue
+    if (winnerId === ch.external_id) {
+      details.push({ anuncio: ch.external_id, resultado: 'nós somos o vencedor' })
+      continue
+    }
+    if (!winnerId || !winnerPrice) {
+      details.push({ anuncio: ch.external_id, resultado: `sem vencedor (status ${body?.status ?? 'n/d'})` })
+      continue
+    }
     const priceToWin = num(body?.price_to_win)
     const notes =
       `Concorrente identificado (vencedor do catálogo) · confiança EXATA` +
@@ -364,6 +375,7 @@ export async function collectCatalogWinners(marketplaceId: number) {
       [ch.id, winnerId, winnerPrice, today, `https://produto.mercadolivre.com.br/${winnerId.replace(/^MLB/, 'MLB-')}`, notes],
     )
     recorded++
+    details.push({ anuncio: ch.external_id, resultado: `vencedor ${winnerId} R$ ${winnerPrice.toFixed(2)} gravado` })
   }
-  return { checked: channels.rows.length, recorded, skipped: null as string | null }
+  return { checked: channels.rows.length, recorded, details, skipped: null as string | null }
 }

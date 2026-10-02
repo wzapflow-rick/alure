@@ -240,7 +240,19 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     if (marketplaceCode === 'mercado_livre') {
       try {
         const { collectCatalogWinners } = await import('@/lib/integrations/meli-competition')
-        competitionWarning = (await collectCatalogWinners(marketplaceId)).skipped
+        const result = await collectCatalogWinners(marketplaceId)
+        competitionWarning = result.skipped
+        await pool.query(`UPDATE sync_jobs SET cursor = cursor || $2::jsonb WHERE id = $1`, [
+          jobId,
+          JSON.stringify({
+            catalogo: {
+              verificados: result.checked,
+              gravados: result.recorded,
+              detalhes: 'details' in result ? result.details : [],
+              aviso: result.skipped,
+            },
+          }),
+        ])
       } catch (error) {
         competitionWarning = `Vencedor do catálogo não coletado: ${(error as Error).message}`
       }
