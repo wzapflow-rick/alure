@@ -1063,15 +1063,18 @@ function median(values: number[]) {
 function competitivePressure(c: ChannelStats, s: EngineSettings): Pressure | null {
   const comp = c.competition
   if (!comp || c.price <= 0 || comp.cheapest.price <= 0) return null
-  const rival = comp.cheapest
-  const gap = ((c.price - rival.price) / rival.price) * 100
+  const cheapest = comp.cheapest
   const p = c.pricing
   const floor = p.status === 'ok' ? (p.minMarginPrice ?? p.breakEvenPrice) : null
-  const viable = floor === null ? null : rival.price >= floor
   const others = comp.all.slice(1).map((o) => o.price)
   const isolatedCut = Math.max(10, s.competitivePriceGapPct) / 100
-  const isolated = others.length >= 2 && rival.price < median(others) * (1 - isolatedCut)
+  const isolated = others.length >= 2 && cheapest.price < median(others) * (1 - isolatedCut)
   const bandText = others.length ? `${formatBRL(Math.min(...others))} – ${formatBRL(Math.max(...others))}` : null
+  // An isolated offer is reported, but the pressure level is measured against the observed band.
+  const rival = isolated ? comp.all[1] : cheapest
+  const gap = ((c.price - rival.price) / rival.price) * 100
+  const viable = floor === null ? null : rival.price >= floor
+  const isolatedGap = isolated ? ((c.price - cheapest.price) / cheapest.price) * 100 : null
 
   const level: PressureLevel = gap <= 0 ? 'none' : gap < s.competitivePriceGapPct ? 'light' : viable === false ? 'unviable' : 'relevant'
 
@@ -1086,15 +1089,24 @@ function competitivePressure(c: ChannelStats, s: EngineSettings): Pressure | nul
 
   const facts: Evidence[] = [
     { label: 'FATO', text: `Nosso preço: ${formatBRL(c.price)}.` },
-    { label: 'FATO', text: `Oferta concorrente observada — ${offerDescription(rival)}. Diferença: ${formatPct(gap, true)}.` },
-    ...(bandText ? [{ label: 'FATO' as const, text: `Demais ofertas observadas: ${bandText} (${formatInt(others.length)} vendedor${others.length === 1 ? '' : 'es'}).` }] : []),
     ...(isolated
-      ? [{ label: 'INTERPRETAÇÃO' as const, text: `Foi observada uma oferta isolada abaixo da faixa observada (${bandText}). Ela não representa o mercado inteiro.` }]
-      : []),
+      ? [
+          { label: 'FATO' as const, text: `Oferta isolada — ${offerDescription(cheapest)}. Diferença: ${formatPct(isolatedGap!, true)}.` },
+          { label: 'FATO' as const, text: `Demais ofertas observadas: ${bandText} (${formatInt(others.length)} vendedores). Menor da faixa — ${offerDescription(rival)}. Diferença: ${formatPct(gap, true)}.` },
+          {
+            label: 'INTERPRETAÇÃO' as const,
+            text: `Oferta isolada abaixo da faixa observada. Ela não representa o preço do mercado; a pressão foi medida contra a faixa (${bandText}).`,
+          },
+        ]
+      : [
+          { label: 'FATO' as const, text: `Oferta concorrente observada — ${offerDescription(rival)}. Diferença: ${formatPct(gap, true)}.` },
+          ...(bandText ? [{ label: 'FATO' as const, text: `Demais ofertas observadas: ${bandText} (${formatInt(others.length)} vendedor${others.length === 1 ? '' : 'es'}).` }] : []),
+        ]),
   ]
   const data: EvidenceDatum[] = [
     { label: 'Nosso preço', value: formatBRL(c.price) },
-    { label: 'Menor oferta observada', value: `${formatBRL(rival.price)} · ${rival.name} · ${fmtDate(rival.observedOn)}` },
+    ...(isolated ? [{ label: 'Oferta isolada', value: `${formatBRL(cheapest.price)} · ${cheapest.name} · ${fmtDate(cheapest.observedOn)}` }] : []),
+    { label: isolated ? 'Referência (menor da faixa)' : 'Menor oferta observada', value: `${formatBRL(rival.price)} · ${rival.name} · ${fmtDate(rival.observedOn)}` },
     { label: 'Diferença', value: `${formatBRL(c.price - rival.price)} (${formatPct(gap, true)})` },
     ...(bandText ? [{ label: 'Faixa das demais ofertas', value: bandText }] : []),
     { label: 'Fonte da observação', value: rival.source },
@@ -1214,7 +1226,9 @@ function evaluateCompetition(
       rival.isFull === false ? 'concorrente sem Full' : null,
       rival.soldQuantity !== null && rival.soldQuantity < 50 ? `concorrente com histórico pequeno (${formatInt(rival.soldQuantity)} vendas)` : null,
     ].filter((a): a is string => a !== null)
-    if (!advantages.length) return null
+    // A cover test is a conversion lever: only suggested when traffic exists and conversion is measured and not improving.
+    const conversionRoom = c.visitsCur !== null && c.visitsCur > 0 && perf.convVsBase !== null && perf.convVsBase <= 0
+    if (!advantages.length || !conversionRoom) return null
     return {
       ...common,
       fingerprint: `R13:${c.productChannelId}`,
