@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { EmptyState, PageHeader, Panel } from '@/components/ui/primitives'
+import { EmptyState, PageHeader } from '@/components/ui/primitives'
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
 import { RunEngineButton } from '@/components/decisions/run-engine-button'
 import { listRecommendations } from '@/lib/queries'
@@ -48,17 +48,15 @@ export async function RecommendationListPage({
           </Link>
         ))}
       </nav>
-      <Panel>
-        {recs.length ? (
-          <div className="divide-y divide-border">
-            {recs.map((r, i) => (
-              <RecommendationCard key={r.id} rec={r} rank={tab.key === 'open' ? i + 1 : undefined} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState title={emptyText} />
-        )}
-      </Panel>
+      {recs.length ? (
+        <div className="-mt-6 divide-y divide-border">
+          {recs.map((r, i) => (
+            <RecommendationCard key={r.id} rec={r} rank={tab.key === 'open' ? i + 1 : undefined} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState title={emptyText} />
+      )}
     </>
   )
 }

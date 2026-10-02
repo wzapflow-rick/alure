@@ -2,6 +2,8 @@ import { getDbStatus, isDbConfigured, queryOne } from '@/lib/db'
 import { requireUser } from '@/lib/session'
 import { Sidebar } from '@/components/shell/sidebar'
 import { SetupRequired } from '@/components/shell/setup-required'
+import { CommandPalette } from '@/components/shell/command-palette'
+import { listProductIndex } from '@/lib/queries'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,12 +28,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (status !== 'ready') return <SetupRequired status={status} />
   }
 
+  const products = await listProductIndex().catch(() => [])
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <Sidebar userName={user.name || user.email} openAlerts={alerts.n} />
-      <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-12 lg:px-14">
-        <div className="mx-auto flex max-w-6xl animate-rise flex-col gap-10">{children}</div>
+      <main className="min-w-0 flex-1 px-5 py-8 md:px-12 md:py-14 lg:px-16">
+        <div className="mx-auto flex max-w-5xl animate-rise flex-col gap-12">{children}</div>
       </main>
+      <CommandPalette products={products} />
     </div>
   )
 }
