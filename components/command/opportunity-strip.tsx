@@ -1,44 +1,42 @@
 import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
-import { Section } from '@/components/ui/primitives'
 import type { RecommendationRow } from '@/lib/queries'
 
 export function OpportunityStrip({ items, total }: { items: RecommendationRow[]; total: number }) {
   return (
-    <Section
-      title="Oportunidades"
-      meta={total ? `${total} ${total === 1 ? 'encontrada' : 'encontradas'}` : undefined}
-      action={
-        total > items.length ? (
+    <section aria-label="Oportunidades" className="flex flex-col gap-4">
+      <header className="flex items-baseline justify-between gap-2">
+        <h2 className="eyebrow tabular">
+          Oportunidades · <span className={total ? 'text-primary' : undefined}>{total}</span>
+        </h2>
+        {total ? (
           <Link href="/oportunidades" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
             Ver todas
           </Link>
-        ) : null
-      }
-    >
+        ) : null}
+      </header>
+
       {items.length ? (
-        <div className="grid gap-3 md:grid-cols-3">
+        <ul className="flex flex-col divide-y divide-border">
           {items.map((r) => (
-            <Link
-              key={r.id}
-              href={r.product_id ? `/produtos/${r.product_id}#acoes` : '/oportunidades'}
-              className="group flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30"
-            >
-              <div className="flex flex-col gap-1">
-                {r.sku ? <span className="font-mono text-xs text-muted-foreground">{r.sku}</span> : null}
-                <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-primary">{r.title}</span>
-              </div>
-              <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{r.issue}</p>
-              <p className="line-clamp-2 text-sm leading-relaxed text-foreground">{r.recommendation}</p>
-              <span className="mt-auto inline-flex items-center gap-1 pt-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
-                Ver oportunidade <ArrowUpRight className="size-3" aria-hidden />
-              </span>
-            </Link>
+            <li key={r.id}>
+              <Link
+                href={r.product_id ? `/produtos/${r.product_id}#acoes` : '/oportunidades'}
+                className="group flex items-baseline gap-4 py-3 first:pt-0"
+              >
+                <span className="w-24 shrink-0 font-mono text-sm">{r.sku ?? '—'}</span>
+                <span className="min-w-0 flex-1 text-sm leading-relaxed text-pretty">
+                  <span className="text-foreground">{r.title}</span>
+                  <span className="text-muted-foreground"> · {r.recommendation}</span>
+                </span>
+                <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden />
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">Nenhuma oportunidade identificada.</p>
+        <p className="text-sm text-muted-foreground">Nenhuma oportunidade além das prioridades.</p>
       )}
-    </Section>
+    </section>
   )
 }

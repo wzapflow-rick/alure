@@ -1,15 +1,14 @@
 import Link from 'next/link'
 import { after } from 'next/server'
 import { getLatestAnalysis, getRunningAnalysis, isStale, runAnalysis } from '@/lib/analysis'
-import { Section } from '@/components/ui/primitives'
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
 import { RunEngineButton } from '@/components/decisions/run-engine-button'
 import { DayReading } from '@/components/command/day-reading'
 import { KpiStrip } from '@/components/command/kpi-strip'
 import { OpportunityStrip } from '@/components/command/opportunity-strip'
-import { AttentionBox } from '@/components/command/attention-box'
+import { AttentionBox, type AttentionLine } from '@/components/command/attention-box'
 import { ChannelHealth, TestsMini, type ChannelHealthItem } from '@/components/command/side-lists'
-import { ProductQuickSearch } from '@/components/products/product-search'
+import { SearchTrigger } from '@/components/shell/command-palette'
 import { TIMEZONE } from '@/lib/format'
 import {
   getConnections,
@@ -88,57 +87,73 @@ export default async function CommandPage() {
 
   const firstName = user?.name?.split(' ')[0]
 
+  const skuByProduct = new Map(productIndex.map((p) => [String(p.id), p.sku]))
+  const priorityProducts = new Set(priorities.map((r) => r.product_id).filter(Boolean).map(String))
+  const attention: AttentionLine[] = alerts
+    .filter((a) => a.severity === 'critical' || a.severity === 'attention')
+    .filter((a) => !a.product_id || !priorityProducts.has(String(a.product_id)))
+    .map((a) => ({
+      id: a.id,
+      severity: a.severity,
+      sku: a.product_id ? skuByProduct.get(String(a.product_id)) ?? null : null,
+      message: a.message,
+      href: a.product_id ? `/produtos/${a.product_id}` : a.experiment_id ? `/testes/${a.experiment_id}` : '/alertas',
+    }))
+  const otherOpportunities = opportunities.filter((r) => !r.product_id || !priorityProducts.has(String(r.product_id)))
+
   return (
     <>
-      <header className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+      <header className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
         <div className="flex flex-col gap-2">
-          <p className="eyebrow tabular">{commandDate()} · Visão comercial</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-balance md:text-4xl">
+          <p className="eyebrow tabular">{commandDate()}</p>
+          <h1 className="text-[28px] font-semibold tracking-tight text-balance md:text-[34px]">
             {firstName ? `Bom dia, ${firstName}.` : 'Central de comando.'}
           </h1>
         </div>
-        <div className="flex flex-col gap-3 md:w-96 md:items-end">
-          <ProductQuickSearch products={productIndex} />
+        <div className="flex items-center gap-3 md:pt-1">
+          <SearchTrigger className="w-full md:w-80" />
           <RunEngineButton />
         </div>
       </header>
 
       <KpiStrip kpis={kpis} dailyTarget={settings.dailyTarget} />
 
+      <div className="rule" aria-hidden />
+
       <DayReading brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
 
-      <div className="grid gap-10 lg:grid-cols-3 lg:gap-12">
-        <div className="flex min-w-0 flex-col gap-10 lg:col-span-2">
-          <Section
-            title="Prioridades"
-            action={
-              <Link href="/prioridades" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
-                Ver todas
-              </Link>
-            }
-          >
-            {priorities.length ? (
-              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
-                {priorities.map((r, i) => (
-                  <RecommendationCard key={r.id} rec={r} rank={i + 1} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                Nenhuma prioridade aberta. O motor só gera prioridades quando há histórico suficiente e um sinal acima dos limites configurados.
-              </p>
-            )}
-          </Section>
+      <section aria-label="Prioridades" className="flex flex-col gap-2">
+        <header className="flex items-baseline justify-between gap-2">
+          <h2 className="eyebrow tabular">
+            Prioridades · <span className="text-foreground">{priorities.length}</span>
+          </h2>
+          <Link href="/prioridades" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
+            Ver todas
+          </Link>
+        </header>
+        {priorities.length ? (
+          <div className="divide-y divide-border border-y border-border">
+            {priorities.map((r, i) => (
+              <RecommendationCard key={r.id} rec={r} rank={i + 1} />
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-sm leading-relaxed text-muted-foreground">
+            Nenhuma prioridade aberta. O motor só gera prioridades com histórico suficiente e sinal acima dos limites.
+          </p>
+        )}
+      </section>
 
-          <OpportunityStrip items={opportunities.slice(0, 3)} total={opportunities.length} />
-        </div>
-
-        <aside className="flex min-w-0 flex-col gap-10">
-          <AttentionBox alerts={alerts} />
-          <TestsMini experiments={experiments} />
-          <ChannelHealth items={channelHealth} />
-        </aside>
+      <div className="grid gap-12 md:grid-cols-2">
+        <AttentionBox lines={attention} total={attention.length} />
+        <TestsMini experiments={experiments} />
       </div>
+
+      <OpportunityStrip items={otherOpportunities.slice(0, 3)} total={otherOpportunities.length} />
+
+      <div className="rule" aria-hidden />
+
+      <ChannelHealth items={channelHealth} />
     </>
   )
 }

@@ -3,12 +3,12 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #07090d;
-  --foreground: #e6e9ef;
-  --surface: #0c0f15;
-  --surface-2: #131722;
-  --border: #1c212d;
-  --muted-foreground: #8a92a3;
+  --background: #06080b;
+  --foreground: #efebe4;
+  --surface: #0d1117;
+  --surface-2: #151a23;
+  --border: #171c25;
+  --muted-foreground: #8691a5;
   --primary: #4cc3dc;
   --primary-foreground: #03141a;
   --critical: #e8685b;
@@ -109,6 +109,12 @@
 
 @utility tabular {
   font-variant-numeric: tabular-nums;
+}
+
+@utility rule {
+  height: 1px;
+  width: 100%;
+  background: var(--border);
 }
 
 @utility eyebrow {
