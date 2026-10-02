@@ -390,7 +390,7 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
         data: commonData,
         recommendation:
           c.stock === 0
-            ? 'Repor estoque antes de investigar preço ou anúncio.'
+            ? 'Verificar disponibilidade com o responsável pelo estoque para evitar interrupção comercial, antes de investigar preço ou anúncio.'
             : 'Verificar status do anúncio, estoque e exposição antes de qualquer mudança de preço.',
         reason: 'Descartar causas operacionais evita mexer em preço sem necessidade.',
         objective: 'Retomar o ritmo normal de vendas.',

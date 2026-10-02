@@ -6,7 +6,7 @@ import type { PoolClient } from 'pg'
 import { withTransaction } from '@/lib/db'
 import { ruleMeta } from '@/lib/engine/rules'
 import { logAudit } from '@/lib/audit'
-import { runAnalysis } from '@/lib/analysis'
+import { getLatestAnalysis, runAnalysis } from '@/lib/analysis'
 import { hasAlertHistory } from '@/lib/engine/run'
 import { authed, failure, formObject, optionalText, type ActionState } from '@/lib/actions/shared'
 
@@ -126,9 +126,12 @@ export async function runEngineAction(_: ActionState): Promise<ActionState> {
     const r = await runAnalysis('manual', user)
     revalidatePath('/', 'layout')
     if (r.skipped) return { ok: true, message: 'Uma análise já está em andamento. Recarregue em instantes.' }
+    // Same persisted row the Command reads, so every screen shows one definition of "canais analisados".
+    const run = await getLatestAnalysis()
+    const counts = run ?? { channels_analyzed: r.channelsAnalyzed, created: r.created, resolved: r.resolved }
     return {
       ok: true,
-      message: `${r.channelsAnalyzed} canais analisados · ${r.created} novas · ${r.resolved} resolvidas.`,
+      message: `${counts.channels_analyzed} canais analisados · ${counts.created} novas · ${counts.resolved} resolvidas.`,
     }
   } catch (e) {
     return failure(e)

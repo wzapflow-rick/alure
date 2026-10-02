@@ -206,6 +206,7 @@ export async function buildDailyContext(opts: { windowDays?: number; analysisRun
     comparisonPeriod: { start: prevStart, end: prevEnd, days },
     FACTS: { channels, products },
     DETERMINISTIC_FINDINGS: recs.map((r) => ({
+      id: `rec:${r.id}`,
       tipo: r.kind,
       regra: r.rule_code,
       severidade: r.severity,
@@ -239,7 +240,14 @@ export async function buildDailyContext(opts: { windowDays?: number; analysisRun
       motivo: m.reason,
       produto: m.product_name,
     })),
-    ALERTS: alerts.map((a) => ({ severidade: a.severity, mensagem: a.message })),
+    ALERTS: alerts.map((a) => ({ id: `alerta:${a.id}`, tipo: a.alert_type, severidade: a.severity, mensagem: a.message })),
+    KNOWN_SKUS: [
+      ...new Set(
+        [...products.map((p) => p.sku), ...recs.map((r) => r.sku), ...experiments.map((e) => e.sku)].filter(
+          (s): s is string => typeof s === 'string' && s.length > 0,
+        ),
+      ),
+    ],
     UNKNOWN: unknown,
     dataQuality: {
       ultima_sincronizacao: quality?.last_sync ?? null,

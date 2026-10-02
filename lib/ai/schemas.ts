@@ -3,6 +3,9 @@ import { z } from 'zod'
 export const confidenceSchema = z.enum(['LOW', 'MEDIUM', 'HIGH'])
 
 const prioritySchema = z.object({
+  source_event_id: z
+    .string()
+    .describe('OBRIGATÓRIO: "id" exato de um item de DETERMINISTIC_FINDINGS ou ALERTS que origina esta prioridade'),
   title: z.string().describe('Título curto da prioridade'),
   sku: z.string().nullable().describe('SKU quando a prioridade é de um produto; null se for do canal'),
   fact: z.string().describe('FATO: números exatamente como estão no contexto'),
@@ -21,6 +24,9 @@ export const dailyAnalysisSchema = z.object({
   what_matters: z.array(z.string()).describe('O QUE IMPORTA'),
   main_bottleneck: z.string().nullable().describe('MAIOR GARGALO ou null se não houver evidência'),
   priorities: z.array(prioritySchema).max(3).describe('PRIORIDADE 1, 2 e 3 em ordem'),
+  signals_to_investigate: z
+    .array(z.string())
+    .describe('Possíveis sinais vistos nos FACTS que NÃO estão em DETERMINISTIC_FINDINGS nem ALERTS. Nunca viram prioridade.'),
   opportunities: z.array(z.string()),
   tests: z.array(z.string()).describe('Estado dos testes ativos e o que proteger'),
   do_not_touch: z.array(z.string()).describe('O QUE NÃO MEXER e por quê'),
@@ -42,6 +48,8 @@ export type AIValidation = {
   unverifiedNumbers: string[]
   droppedItems: number
   warnings: string[]
+  droppedPriorities?: number
+  unknownSkus?: string[]
 }
 
 export type AIBriefBlock = {
