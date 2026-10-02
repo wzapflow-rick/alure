@@ -13,7 +13,9 @@ export type FreshnessResult = { code: string; status: 'fresh' | 'synced' | 'runn
  * when something triggers a sync. Re-syncs today's window for every connected
  * channel whose last successful sync is older than STALE_AFTER_MS.
  */
-export async function refreshTodayIfStale(): Promise<FreshnessResult[]> {
+export async function refreshTodayIfStale({ waitLimitMs = WAIT_LIMIT_MS }: { waitLimitMs?: number } = {}): Promise<
+  FreshnessResult[]
+> {
   const { rows } = await pool.query<{ code: string; last_success: Date | null; running_since: Date | null }>(
     `SELECT m.code,
             (SELECT MAX(j.finished_at) FROM sync_jobs j WHERE j.marketplace_id = m.id AND j.status = 'success') AS last_success,
@@ -35,8 +37,9 @@ export async function refreshTodayIfStale(): Promise<FreshnessResult[]> {
           r.status === 'success' ? { code, status: 'synced' } : { code, status: 'error', detail: r.error },
         (err: Error): FreshnessResult => ({ code, status: 'error', detail: err.message }),
       )
+      if (!Number.isFinite(waitLimitMs)) return sync
       const timeout = new Promise<FreshnessResult>((resolve) =>
-        setTimeout(() => resolve({ code, status: 'timeout' }), WAIT_LIMIT_MS),
+        setTimeout(() => resolve({ code, status: 'timeout' }), waitLimitMs),
       )
       return Promise.race([sync, timeout])
     }),
