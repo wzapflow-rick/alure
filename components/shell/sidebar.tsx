@@ -14,26 +14,59 @@ import {
   Settings,
   Sparkles,
   Target,
+  type LucideIcon,
 } from 'lucide-react'
 import { signOut } from '@/lib/auth-client'
 import { cn } from '@/lib/utils'
 
-const NAV = [
-  { href: '/', label: 'Comando', icon: LayoutGrid },
+type NavItem = { href: string; label: string; icon: LucideIcon }
+
+const DECISION: NavItem[] = [
   { href: '/prioridades', label: 'Prioridades', icon: Target },
   { href: '/oportunidades', label: 'Oportunidades', icon: Compass },
-  { href: '/testes', label: 'Testes', icon: FlaskConical },
   { href: '/produtos', label: 'Produtos', icon: Package },
+  { href: '/testes', label: 'Testes', icon: FlaskConical },
+  { href: '/alertas', label: 'Alertas', icon: Bell },
+]
+
+const INTELLIGENCE: NavItem[] = [
   { href: '/leituras', label: 'Leituras', icon: ScrollText },
   { href: '/memoria', label: 'Memória', icon: BookMarked },
-  { href: '/alertas', label: 'Alertas', icon: Bell },
   { href: '/assistente', label: 'Assistente', icon: Sparkles },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
+
+const SETTINGS: NavItem = { href: '/configuracoes', label: 'Configurações', icon: Settings }
+
+function isActive(pathname: string, href: string) {
+  return href === '/' ? pathname === '/' : pathname.startsWith(href)
+}
+
+function NavLink({ item, pathname, badge }: { item: NavItem; pathname: string; badge?: number }) {
+  const active = isActive(pathname, item.href)
+  const Icon = item.icon
+  return (
+    <Link
+      href={item.href}
+      prefetch={false}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex shrink-0 items-center gap-3 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-150',
+        active ? 'bg-surface-2 text-foreground' : 'text-muted-foreground hover:bg-surface hover:text-foreground',
+      )}
+    >
+      <Icon className={cn('size-4 shrink-0', active ? 'text-foreground' : 'text-muted-foreground/80')} aria-hidden />
+      <span>{item.label}</span>
+      {badge ? (
+        <span className="ml-auto rounded-full bg-attention/15 px-1.5 text-[10px] font-medium leading-4 text-attention tabular">{badge}</span>
+      ) : null}
+    </Link>
+  )
+}
 
 export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts: number }) {
   const pathname = usePathname()
   const router = useRouter()
+  const commandActive = pathname === '/'
 
   async function handleSignOut() {
     await signOut()
@@ -42,36 +75,51 @@ export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts
   }
 
   return (
-    <aside className="sticky top-0 z-20 flex w-full shrink-0 flex-col border-b border-border bg-background md:h-dvh md:w-56 md:border-r md:border-b-0">
-      <div className="flex items-center justify-between px-5 py-4 md:py-6">
+    <aside className="sticky top-0 z-20 flex w-full shrink-0 flex-col border-b border-border bg-background/95 backdrop-blur md:h-dvh md:w-60 md:border-r md:border-b-0">
+      <div className="flex items-center px-5 py-4 md:py-6">
         <Link href="/" className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold tracking-[0.3em]">ALURE</span>
-          <span className="font-mono text-[10px] text-primary">OS</span>
+          <span className="text-sm font-semibold tracking-[0.28em]">ALURE</span>
+          <span className="text-[10px] font-medium tracking-widest text-muted-foreground">OS</span>
         </Link>
       </div>
 
-      <nav aria-label="Principal" className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-1 md:flex-col md:overflow-visible md:pb-0">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
-          return (
-            <Link
-              key={href}
-              href={href}
-              prefetch={false}
-              aria-current={active ? 'page' : undefined}
-              className={cn(
-                'flex shrink-0 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                active ? 'bg-surface-2 text-foreground' : 'text-muted-foreground hover:bg-surface hover:text-foreground',
-              )}
-            >
-              <Icon className={cn('size-4', active && 'text-primary')} aria-hidden />
-              <span>{label}</span>
-              {href === '/alertas' && openAlerts > 0 ? (
-                <span className="ml-auto rounded bg-attention/15 px-1.5 font-mono text-[10px] text-attention tabular">{openAlerts}</span>
-              ) : null}
-            </Link>
-          )
-        })}
+      <nav aria-label="Principal" className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-1 md:flex-col md:gap-6 md:overflow-visible md:pb-0">
+        <Link
+          href="/"
+          prefetch={false}
+          aria-current={commandActive ? 'page' : undefined}
+          className={cn(
+            'group flex shrink-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all duration-150',
+            commandActive
+              ? 'border-primary/30 bg-primary/10 text-foreground'
+              : 'border-border bg-surface text-foreground/90 hover:border-primary/30 hover:text-foreground',
+          )}
+        >
+          <LayoutGrid className={cn('size-4', commandActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary')} aria-hidden />
+          Comando
+        </Link>
+
+        <div className="flex gap-1 md:flex-col md:gap-0.5">
+          <span className="hidden px-2.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60 md:block">
+            Decisão
+          </span>
+          {DECISION.map((item) => (
+            <NavLink key={item.href} item={item} pathname={pathname} badge={item.href === '/alertas' ? openAlerts : undefined} />
+          ))}
+        </div>
+
+        <div className="flex gap-1 md:flex-col md:gap-0.5">
+          <span className="hidden px-2.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60 md:block">
+            Inteligência
+          </span>
+          {INTELLIGENCE.map((item) => (
+            <NavLink key={item.href} item={item} pathname={pathname} />
+          ))}
+        </div>
+
+        <div className="flex md:mt-auto md:flex-col md:pb-3">
+          <NavLink item={SETTINGS} pathname={pathname} />
+        </div>
       </nav>
 
       <div className="hidden items-center justify-between gap-2 border-t border-border px-5 py-4 md:flex">
@@ -79,7 +127,7 @@ export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts
         <button
           type="button"
           onClick={handleSignOut}
-          className="rounded p-1 text-muted-foreground hover:text-foreground"
+          className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Sair"
         >
           <LogOut className="size-4" aria-hidden />

@@ -7,8 +7,8 @@ import { listProducts } from '@/lib/queries'
 
 export const metadata: Metadata = { title: 'Produtos' }
 
-export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const [products, { q }] = await Promise.all([listProducts(), searchParams])
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+  const [products, { q, status }] = await Promise.all([listProducts(), searchParams])
   return (
     <>
       <PageHeader
@@ -22,7 +22,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       />
       <Panel>
         {products.length ? (
-          <ProductsTable products={products} initialQuery={q?.slice(0, 80) ?? ''} />
+          <ProductsTable products={products} initialQuery={q?.slice(0, 80) ?? ''} initialMissingCost={status === 'no_cost'} />
         ) : (
           <EmptyState title="Nenhum produto cadastrado." description="Cadastre o primeiro produto para que o motor possa calcular margem e prioridades." />
         )}
