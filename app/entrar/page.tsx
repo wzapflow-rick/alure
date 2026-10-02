@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import { redirect } from 'next/navigation'
+import { LiquidGlassLogo } from '@/components/auth/liquid-glass-logo'
 import { SignInForm } from '@/components/auth/sign-in-form'
 import { SetupRequired } from '@/components/shell/setup-required'
 import { getDbStatus } from '@/lib/db'
@@ -52,14 +53,7 @@ function BrandPanel() {
       <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-brand-deep/80 via-transparent to-brand-deep/40" />
 
       <div className="relative flex w-full flex-col items-center justify-center gap-10 px-10">
-        <Image
-          src="/brand/logo-full.png"
-          alt="ALURE Design & Acabamentos"
-          width={932}
-          height={776}
-          priority
-          className="h-auto w-[clamp(200px,30%,280px)] animate-rise"
-        />
+        <LiquidGlassLogo className="w-[clamp(260px,40%,370px)] animate-rise" />
         <p className="max-w-xs animate-rise text-center text-sm leading-relaxed text-foreground/60 text-pretty [animation-delay:120ms]">
           Inteligência comercial para decisões que realmente importam.
         </p>
