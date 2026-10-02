@@ -83,9 +83,12 @@ export async function generateDailyBrief(user: SessionUser | null, analysisRunId
       .filter((h) => h.channels > 0)
       .map((h) => `${h.name} ${STATUS_WORD[h.status]}`)
       .join(', ')
+    const anyChannelOff = health.some((h) => h.channels > 0 && (h.status === 'attention' || h.status === 'critical'))
     summary = parts.length
       ? `${parts.join(', ')}.${channelText ? ` ${channelText}.` : ''}`
-      : `Nenhum desvio relevante. Nenhuma ação necessária hoje.${channelText ? ` ${channelText}.` : ''}`
+      : anyChannelOff
+        ? `Nenhuma prioridade do motor em aberto.${channelText ? ` ${channelText}.` : ''}`
+        : `Nenhum desvio relevante. Nenhuma ação necessária hoje.${channelText ? ` ${channelText}.` : ''}`
   }
 
   const lines: DailyBrief['lines'] = [

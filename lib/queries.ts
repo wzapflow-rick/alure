@@ -361,6 +361,38 @@ export async function getProductChannels(productId: number) {
   )
 }
 
+export type CompetitorOfferRow = {
+  id: string
+  product_channel_id: string
+  competitor_name: string
+  price: string
+  free_shipping: boolean | null
+  is_full: boolean | null
+  sold_quantity: number | null
+  observed_on: string
+  source: string
+  url: string | null
+  notes: string | null
+}
+
+/** Full observation history for a product (all channels), newest first. Empty before migrations 007/008. */
+export async function listCompetitorOffers(productId: number) {
+  const ready = await queryOne<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'competitor_offers' AND column_name = 'is_full') AS ok`,
+  )
+  if (!ready?.ok) return []
+  return query<CompetitorOfferRow>(
+    `SELECT co.id, co.product_channel_id, co.competitor_name, co.price, co.free_shipping, co.is_full,
+            co.sold_quantity, to_char(co.observed_on,'YYYY-MM-DD') AS observed_on, co.source, co.url, co.notes
+       FROM competitor_offers co JOIN product_channels pc ON pc.id = co.product_channel_id
+      WHERE pc.product_id = $1
+      ORDER BY co.observed_on DESC, co.id DESC
+      LIMIT 200`,
+    [productId],
+  )
+}
+
 export async function getCostLots(productId: number) {
   return query<{
     id: string

@@ -16,8 +16,10 @@ import {
   getProductChannels,
   listExperiments,
   listMarketplaces,
+  listCompetitorOffers,
   listRecommendations,
 } from '@/lib/queries'
+import { CompetitionPanel } from '@/components/products/competition-panel'
 import { getEngineSettings } from '@/lib/settings'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -34,7 +36,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const product = await getProduct(num)
   if (!product) notFound()
 
-  const [channels, lots, history, experiments, recs, marketplaces, rules, settings] = await Promise.all([
+  const [channels, lots, history, experiments, recs, marketplaces, rules, settings, competitorOffers] = await Promise.all([
     getProductChannels(num),
     getCostLots(num),
     getPriceHistory(num),
@@ -43,6 +45,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     listMarketplaces(),
     getActiveFeeRules(),
     getEngineSettings(),
+    listCompetitorOffers(num),
   ])
 
   const cost = product.average_cost !== null ? Number(product.average_cost) : null
@@ -139,6 +142,32 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </div>
         </Panel>
       ) : null}
+
+      <CompetitionPanel
+        productId={product.id}
+        offers={competitorOffers}
+        today={todayISO()}
+        freshDays={settings.competitorFreshDays}
+        gapPct={settings.competitivePriceGapPct}
+        channels={channels.map((c) => ({
+          id: c.id,
+          marketplace_name: c.marketplace_name,
+          price: Number(c.current_price),
+          pricing: priceChannel(
+            {
+              marketplaceId: Number(c.marketplace_id),
+              price: Number(c.current_price),
+              adsCostPct: Number(c.ads_cost_pct),
+              sellerDiscount: Number(c.seller_discount),
+              category: product.category,
+              cost,
+            },
+            rules,
+            settings.targetMarginPct,
+            settings.minMarginPct,
+          ),
+        }))}
+      />
 
       <div className="grid gap-8 lg:grid-cols-2">
         <Panel

@@ -75,6 +75,36 @@ export const RULE_META: Record<string, { category: Category; metric: string; rev
   R7_TEST_REVIEW: { category: 'commercial', metric: 'Pedidos, visitas e conversão antes × durante', reviewDays: 0 },
   R0_LOST_PACE: { category: 'commercial', metric: 'Visitas → conversão → pedidos → faturamento, nessa ordem', reviewDays: 7 },
   R10_STOCKOUT_RISK: { category: 'commercial', metric: 'Cobertura de estoque em dias de venda', reviewDays: 3 },
+  R10_STOCK_INSUFFICIENT_DATA: { category: 'info', metric: 'Dias com venda para estimar velocidade', reviewDays: 7 },
+  R11_COMPETITIVE: { category: 'commercial', metric: 'Conversão, pedidos, faturamento e margem', reviewDays: 7 },
+  R11_COMPETITIVE_INFO: { category: 'info', metric: 'Preço observado do concorrente vs desempenho', reviewDays: 7 },
+  R12_PACE_DROP: { category: 'commercial', metric: 'Unidades/dia, visitas e conversão nos próximos dias', reviewDays: 3 },
+  R13_DIFFERENTIATION: { category: 'commercial', metric: 'Conversão e pedidos', reviewDays: 7 },
+  R14_SYSTEMIC_MOTORS: { category: 'commercial', metric: 'Ritmo dos motores de giro no marketplace', reviewDays: 3 },
+}
+
+/**
+ * Comando shows only level-1 events. Critical always qualifies; attention needs ≥ ~2.5% of the
+ * daily goal at stake (60 base + 10). Everything else stays in its own area.
+ */
+export const COMMAND_MIN_SCORE = 70
+
+/**
+ * Reads only real observations stored in competitor_offers (manual or collected). With no rows,
+ * nothing competitive is generated; the cheaper rival is never treated as the cause of a drop.
+ */
+export const COMPETITIVE_INTELLIGENCE_ACTIVE = true
+
+export type AlertLevel = 'high_impact' | 'attention' | 'information'
+export function alertLevel(severity: string): AlertLevel {
+  if (severity === 'critical') return 'high_impact'
+  if (severity === 'attention') return 'attention'
+  return 'information'
+}
+export const ALERT_LEVEL_LABEL: Record<AlertLevel, string> = {
+  high_impact: 'Alto impacto',
+  attention: 'Atenção',
+  information: 'Informação',
 }
 
 export function ruleMeta(ruleCode: string) {
@@ -123,6 +153,41 @@ export type ChannelStats = {
   observedDays90: number
   lastPriceChange: { date: string; previous: number | null; price: number } | null
   pricing: PricingResult
+  /** Units (orders when units are missing) and revenue over fixed periods — base for stock velocity. */
+  units7: number
+  units14: number
+  units28: number
+  revenue14: number
+  revenue28: number
+  saleDays14: number
+  saleDays28: number
+  /** Short-term pace: last 2 days (yesterday + today), the day before, and the 7 days before that. */
+  units2: number
+  unitsD2: number
+  unitsPrior7: number
+  visits2: number | null
+  visitsPrior7: number | null
+  /** Latest competitor observations for this listing; null when none is fresh or the table does not exist. */
+  competition: Competition | null
+}
+
+export type CompetitorOffer = {
+  name: string
+  price: number
+  freeShipping: boolean | null
+  isFull: boolean | null
+  soldQuantity: number | null
+  source: string
+  observedOn: string
+  /** Same competitor's previous observed price, to detect price moves. */
+  previousPrice: number | null
+}
+
+/** Latest fresh observation per competitor; `all` is sorted by price ascending. */
+export type Competition = {
+  offers: number
+  cheapest: CompetitorOffer
+  all: CompetitorOffer[]
 }
 
 export type ActiveExperiment = {
@@ -175,7 +240,9 @@ const SEVERITY_BASE: Record<Severity, number> = { critical: 100, attention: 60, 
 const CONF_RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 }
 const MIN_BASELINE_DAYS = 14
 /** Rules whose conclusion depends on sample size; weak evidence becomes "monitorar". */
-const SAMPLE_SENSITIVE = new Set(['R1_STALLED', 'R2_TRAFFIC_PROBLEM', 'R3_CONVERSION_PROBLEM', 'R3L_LOW_CONVERSION', 'R2S_SALES_DROP', 'R5_MOMENTUM', 'R9_PROMO_TEST'])
+const SAMPLE_SENSITIVE = new Set(['R1_STALLED', 'R2_TRAFFIC_PROBLEM', 'R3_CONVERSION_PROBLEM', 'R3L_LOW_CONVERSION', 'R2S_SALES_DROP', 'R5_MOMENTUM', 'R9_PROMO_TEST', 'R11_COMPETITIVE'])
+/** Minimum days with a sale inside the period before a velocity is trusted. */
+const MIN_SALE_DAYS_FOR_VELOCITY = 3
 
 function pctChange(cur: number, ref: number) {
   if (ref <= 0) return null
@@ -199,10 +266,12 @@ function score(severity: Severity, revenueAtStake: number, windowDays: number, d
 /** An alert is only worth an interruption when the product moves the daily goal. */
 const ALERT_MIN_GOAL_SHARE = 0.01
 const ALERT_MIN_UNITS_PER_DAY = 1
+const OWN_RELEVANCE = new Set(['R10_STOCKOUT_RISK', 'R11_COMPETITIVE', 'R12_PACE_DROP'])
 
 /** Signals that all describe "the product lost commercial pace", in diagnostic order. */
-const LOST_PACE_ORDER = ['R1_STALLED', 'R2B_TRAFFIC_AND_CONVERSION', 'R2_TRAFFIC_PROBLEM', 'R3_CONVERSION_PROBLEM', 'R2S_SALES_DROP', 'R6_TICKET_DROP']
+const LOST_PACE_ORDER = ['R12_PACE_DROP', 'R1_STALLED', 'R2B_TRAFFIC_AND_CONVERSION', 'R2_TRAFFIC_PROBLEM', 'R3_CONVERSION_PROBLEM', 'R2S_SALES_DROP', 'R6_TICKET_DROP']
 const LOST_PACE_LABEL: Record<string, string> = {
+  R12_PACE_DROP: 'Ritmo de curto prazo',
   R1_STALLED: 'Sem venda',
   R2B_TRAFFIC_AND_CONVERSION: 'Tráfego e conversão',
   R2_TRAFFIC_PROBLEM: 'Tráfego',
@@ -210,7 +279,7 @@ const LOST_PACE_LABEL: Record<string, string> = {
   R2S_SALES_DROP: 'Pedidos',
   R6_TICKET_DROP: 'Faturamento/ticket',
 }
-const SEVERITY_RANK: Record<Severity, number> = { critical: 3, attention: 2, positive: 1, info: 0 }
+export const SEVERITY_RANK: Record<Severity, number> = { critical: 3, attention: 2, positive: 1, info: 0 }
 
 function fmtDays(n: number) {
   return `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dia${n === 1 ? '' : 's'}`
@@ -329,10 +398,20 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
             label: 'INTERPRETAÇÃO',
             text: `Para ${profile.label.toLowerCase()}, o limite considerado é ${fmtDays(Math.round(threshold * 10) / 10)} — o intervalo atual está acima do esperado.`,
           },
-          { label: 'HIPÓTESE', text: 'Anúncio pausado, ruptura de estoque, perda de exposição ou concorrente com preço menor.' },
+          c.stock === 0
+            ? { label: 'FATO', text: 'Estoque zerado no marketplace: a parada coincide com ruptura, não necessariamente com perda de ritmo comercial.' }
+            : {
+                label: 'HIPÓTESE',
+                text: c.stock !== null
+                  ? 'Anúncio pausado, perda de exposição ou concorrente com condição melhor (estoque disponível descarta ruptura).'
+                  : 'Anúncio pausado, ruptura de estoque, perda de exposição ou concorrente com preço menor.',
+              },
         ],
         data: commonData,
-        recommendation: 'Verificar status do anúncio, estoque e exposição antes de qualquer mudança de preço.',
+        recommendation:
+          c.stock === 0
+            ? 'Verificar disponibilidade com o responsável pelo estoque para evitar interrupção comercial, antes de investigar preço ou anúncio.'
+            : 'Verificar status do anúncio, estoque e exposição antes de qualquer mudança de preço.',
         reason: 'Descartar causas operacionais evita mexer em preço sem necessidade.',
         objective: 'Retomar o ritmo normal de vendas.',
         suggestsChange: false,
@@ -603,8 +682,8 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       data: commonData,
       recommendation:
         coverageDays !== null
-          ? `Não interferir. Estoque cobre ~${fmtDays(Math.floor(coverageDays))} no ritmo atual${coverageDays < 14 ? ' — programar reposição' : ''}.`
-          : 'Não interferir. Garantir estoque para sustentar o ritmo.',
+          ? `Não interferir. Cobertura matemática de ${fmtDays(Math.round(coverageDays * 10) / 10)} no ritmo atual${coverageDays < 14 ? ' — verificar disponibilidade para evitar interrupção comercial' : ''}.`
+          : 'Não interferir. Verificar disponibilidade para sustentar o ritmo.',
       reason: 'Mudar preço ou anúncio durante a aceleração pode quebrar o que está funcionando.',
       objective: 'Sustentar o crescimento sem perder margem.',
       suggestsChange: false,
@@ -674,54 +753,30 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
     })
   }
 
-  // F — risco comercial de ruptura: estoque que não sustenta o ritmo de venda
-  const dailyRevenue = c.revenueCur / w
-  const relevant = dailyRevenue >= s.dailyTarget * ALERT_MIN_GOAL_SHARE || unitsPerDay >= ALERT_MIN_UNITS_PER_DAY
-  if (c.stock !== null && unitsPerDay > 0 && relevant && coverageDays !== null && coverageDays <= 7) {
-    const severity: Severity = c.stock === 0 || coverageDays <= 3 ? 'critical' : 'attention'
-    const daysAtRisk = Math.max(1, 7 - Math.floor(coverageDays))
-    const atStake = dailyRevenue * daysAtRisk
-    signals.push({
-      ...ids,
-      fingerprint: `R10:${c.productChannelId}`,
-      ruleCode: 'R10_STOCKOUT_RISK',
-      kind: 'priority',
-      severity,
-      actionType: 'recommendation',
-      confidence: c.ordersCur >= s.minOrdersHistory ? 'high' : 'medium',
-      score: score(severity, atStake * w, w, s.dailyTarget) + 10,
-      title,
-      issue:
-        c.stock === 0
-          ? `Sem estoque no marketplace com venda média de ${unitsPerDay.toFixed(1)} un/dia.`
-          : `Estoque cobre ~${fmtDays(Math.floor(coverageDays))} de venda no ritmo atual.`,
-      evidence: [
-        { label: 'FATO', text: `Estoque atual: ${formatInt(c.stock)} un. Velocidade: ${unitsPerDay.toFixed(1)} un/dia (últimos ${w} dias).` },
-        { label: 'FATO', text: `Cobertura estimada: ${coverageDays.toFixed(1)} dias.` },
-        { label: 'INTERPRETAÇÃO', text: `Ruptura interrompe a venda e derruba a relevância do anúncio. Cerca de ${formatBRL(atStake)} de faturamento em risco na próxima semana.` },
-      ],
-      data: [
-        ...commonData,
-        { label: 'Estoque atual', value: `${formatInt(c.stock)} un` },
-        { label: 'Velocidade de venda', value: `${unitsPerDay.toFixed(1)} un/dia` },
-        { label: 'Cobertura', value: `${coverageDays.toFixed(1)} dias` },
-        { label: 'Impacto estimado', value: `${formatBRL(dailyRevenue)}/dia · ${formatPct((dailyRevenue / Math.max(1, s.dailyTarget)) * 100)} da meta diária` },
-      ],
-      recommendation: c.stock === 0 ? 'Repor estoque imediatamente ou pausar investimento em exposição até a reposição.' : 'Programar reposição antes da ruptura.',
-      reason: 'Repor é mais barato do que recuperar posição depois de ficar sem estoque.',
-      objective: 'Manter cobertura acima de 7 dias.',
-      suggestsChange: false,
-      alert: {
-        type: 'stockout_risk',
-        severity,
-        message: `${title}: estoque cobre ~${fmtDays(Math.floor(coverageDays))} (${formatInt(c.stock)} un, ${unitsPerDay.toFixed(1)} un/dia).`,
-      },
+  // F — risco de ruptura: cobertura (estoque ÷ velocidade) cruzada com a relevância comercial
+  const stockSignal = evaluateStock(c, s, ids, title, commonData)
+  if (stockSignal) signals.push(stockSignal)
+
+  // G — queda de ritmo de curto prazo em motor de giro, com diagnóstico em cascata
+  const paceSignal = evaluatePaceDrop(c, s, ids, title, commonData)
+  if (paceSignal) signals.push(paceSignal)
+
+  // I — inteligência competitiva: só com observações reais; preço do concorrente nunca é causa comprovada
+  if (COMPETITIVE_INTELLIGENCE_ACTIVE) {
+    const competitiveSignal = evaluateCompetition(c, s, profile, ids, title, commonData, {
+      convVsBase,
+      ordersVsBase,
+      baseOrders: base.orders,
     })
+    if (competitiveSignal) signals.push(competitiveSignal)
   }
 
   // Alertas só para o que move a meta. O sinal continua nas prioridades; só não interrompe.
+  // Ruptura e concorrência medem a própria relevância (velocidade e faturamento de períodos longos).
+  const dailyRevenue = c.revenueCur / w
+  const relevant = dailyRevenue >= s.dailyTarget * ALERT_MIN_GOAL_SHARE || unitsPerDay >= ALERT_MIN_UNITS_PER_DAY
   const gated = signals.map((sg) => {
-    if (!sg.alert || relevant) return sg
+    if (!sg.alert || relevant || OWN_RELEVANCE.has(sg.ruleCode)) return sg
     return {
       ...sg,
       alert: undefined,
@@ -733,6 +788,734 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
   })
 
   return gated.map((sg) => applyConservatism(sg, profile))
+}
+
+type SignalIds = Pick<Signal, 'productId' | 'productChannelId' | 'marketplaceId' | 'experimentId'>
+
+type Velocity = {
+  perDay: number
+  baseRate: number
+  rate7: number
+  periodDays: number
+  units: number
+  revenue: number
+  saleDays: number
+  trend: 'up' | 'down' | 'stable'
+}
+
+/**
+ * Sales velocity from 14 or 28 days (28 first for high-ticket/seasonal), weighted toward the
+ * last 7 days when they clearly diverge. Null when the sample cannot support a projection.
+ */
+function stockVelocity(c: ChannelStats): Velocity | null {
+  const longFirst = c.classification === 'alto_ticket' || c.classification === 'sazonal'
+  const periods = longFirst ? [28, 14] : [14, 28]
+  for (const days of periods) {
+    if (c.historyDays < days) continue
+    const units = days === 14 ? c.units14 : c.units28
+    const saleDays = days === 14 ? c.saleDays14 : c.saleDays28
+    if (saleDays < MIN_SALE_DAYS_FOR_VELOCITY || units <= 0) continue
+    const revenue = days === 14 ? c.revenue14 : c.revenue28
+    const baseRate = units / days
+    const rate7 = c.units7 / 7
+    let trend: Velocity['trend'] = 'stable'
+    let perDay = baseRate
+    if (rate7 >= baseRate * 1.3) {
+      trend = 'up'
+      perDay = (baseRate + rate7) / 2
+    } else if (rate7 <= baseRate * 0.6) {
+      trend = 'down'
+      perDay = (baseRate + rate7) / 2
+    }
+    return { perDay, baseRate, rate7, periodDays: days, units, revenue, saleDays, trend }
+  }
+  return null
+}
+
+function stockRelevance(c: ChannelStats, v: Velocity, s: EngineSettings) {
+  const dailyRevenue = v.revenue / v.periodDays
+  const share = s.dailyTarget > 0 ? dailyRevenue / s.dailyTarget : 0
+  const frequency = v.saleDays / v.periodDays
+  const tier: 'high' | 'medium' | 'low' =
+    share >= 0.03 ||
+    v.perDay >= 5 ||
+    (c.classification === 'motor_de_giro' && (v.perDay >= 1 || frequency >= 0.5)) ||
+    (c.classification === 'alto_ticket' && share >= 0.02)
+      ? 'high'
+      : share >= ALERT_MIN_GOAL_SHARE || v.perDay >= ALERT_MIN_UNITS_PER_DAY || frequency >= 0.5
+        ? 'medium'
+        : 'low'
+  return { tier, dailyRevenue, share }
+}
+
+/** Quantity alone never alerts: coverage and commercial relevance decide the level. */
+function evaluateStock(c: ChannelStats, s: EngineSettings, ids: SignalIds, title: string, commonData: EvidenceDatum[]): Signal | null {
+  if (c.stock === null) return null
+  const v = stockVelocity(c)
+
+  if (!v) {
+    if (c.units28 <= 0 || c.stock > c.units28) return null
+    return {
+      ...ids,
+      fingerprint: `R10I:${c.productChannelId}`,
+      ruleCode: 'R10_STOCK_INSUFFICIENT_DATA',
+      kind: 'no_action',
+      severity: 'info',
+      actionType: 'information',
+      confidence: 'high',
+      score: 12,
+      title,
+      issue: 'Dados insuficientes para estimar risco de ruptura.',
+      evidence: [
+        { label: 'FATO', text: `Estoque atual: ${formatInt(c.stock)} un. ${formatInt(c.units28)} un vendidas em ${formatInt(c.saleDays28)} dia(s) com venda nos últimos 28 dias.` },
+        { label: 'INTERPRETAÇÃO', text: `Menos de ${MIN_SALE_DAYS_FOR_VELOCITY} dias com venda (ou histórico curto): não há velocidade confiável para projetar cobertura.` },
+      ],
+      data: [
+        ...commonData,
+        { label: 'Estoque atual', value: `${formatInt(c.stock)} un` },
+        { label: 'Vendas (28d)', value: `${formatInt(c.units28)} un em ${formatInt(c.saleDays28)} dia(s)` },
+      ],
+      recommendation: 'Nenhuma ação automática. Acompanhar o estoque até formar velocidade de venda.',
+      reason: 'Projetar ruptura com amostra pequena gera alarme falso.',
+      objective: 'Formar uma velocidade de venda confiável.',
+      suggestsChange: false,
+    }
+  }
+
+  const rel = stockRelevance(c, v, s)
+  if (rel.tier === 'low') return null
+
+  // A velocidade exibida é a mesma usada na conta: estoque ÷ velocidade mostrada = cobertura mostrada.
+  const perDay = round2(v.perDay)
+  if (perDay <= 0) return null
+  const coverage = c.stock / perDay
+  if (c.stock > 0 && coverage > s.stockRiskDays) return null
+
+  const imminent = c.stock === 0 || coverage <= s.stockCriticalDays
+  const severity: Severity = imminent ? (rel.tier === 'high' ? 'critical' : 'attention') : rel.tier === 'high' ? 'attention' : 'info'
+  const level = alertLevel(severity)
+  // Só produto de alta relevância comercial disputa o topo do Comando; os demais ficam no alerta e em Prioridades.
+  const elevated = rel.tier === 'high' && severity !== 'info'
+  const daysAtRisk = Math.max(1, s.stockRiskDays - coverage)
+  const atStake = rel.dailyRevenue * daysAtRisk
+  const stockText = `${formatInt(c.stock)} un`
+  const velocityText = `${fmtNum(perDay, 2)} un/dia`
+  const coverageText = fmtDays(round1(coverage))
+  const coverageMath = c.stock === 0 ? '0 dias (sem estoque)' : `${stockText} ÷ ${velocityText} = ${coverageText}`
+  const sharePct = formatPct(rel.share * 100)
+  const periodText = `últimos ${v.periodDays} dias`
+  const baseRateText = `${formatInt(v.units)} un ÷ ${v.periodDays} dias = ${fmtNum(v.baseRate, 2)} un/dia`
+  const velocityMath =
+    v.trend === 'stable'
+      ? baseRateText
+      : `média entre o período (${fmtNum(v.baseRate, 2)} un/dia) e os últimos 7 dias (${formatInt(c.units7)} un ÷ 7 = ${fmtNum(v.rate7, 2)} un/dia) = ${velocityText}`
+  const trendText =
+    v.trend === 'up'
+      ? `Últimos 7 dias acima de 130% da média do período: velocidade ponderada para cima (${baseRateText} no período).`
+      : v.trend === 'down'
+        ? `Últimos 7 dias abaixo de 60% da média do período: velocidade ponderada para baixo (${baseRateText} no período).`
+        : null
+  const classLabel = c.classification && c.classification !== 'sem_classificacao' ? CLASSIFICATION_LABEL[c.classification] : null
+  const frequencyPct = formatPct((v.saleDays / v.periodDays) * 100)
+  const relevanceText = `${RELEVANCE_LABEL[rel.tier]}: ${formatBRL(v.revenue)} e ${formatInt(v.units)} un em ${v.periodDays} dias (${formatBRL(rel.dailyRevenue)}/dia, ${sharePct} da meta diária); venda em ${formatInt(v.saleDays)} de ${v.periodDays} dias (${frequencyPct}).`
+  const whyText =
+    c.stock === 0
+      ? `Estoque zerado em produto com venda recorrente e relevância ${RELEVANCE_LABEL[rel.tier].toLowerCase()}.`
+      : `A cobertura (${coverageText}) está abaixo do limite configurado de ${fmtDays(s.stockRiskDays)}${imminent ? ` e dentro do limite crítico de ${fmtDays(s.stockCriticalDays)}` : ''}, em produto de relevância ${RELEVANCE_LABEL[rel.tier].toLowerCase()}.`
+  const action =
+    c.stock === 0
+      ? 'Verificar com o responsável pelo estoque a disponibilidade do produto para evitar interrupção comercial.'
+      : 'Verificar disponibilidade para evitar interrupção comercial.'
+
+  const issue =
+    c.stock === 0
+      ? `Risco comercial de ruptura: sem estoque, com venda média de ${velocityText}.`
+      : `Risco comercial de ruptura: cobertura de ${coverageText} (${coverageMath}).`
+
+  return {
+    ...ids,
+    fingerprint: `R10:${c.productChannelId}`,
+    ruleCode: 'R10_STOCKOUT_RISK',
+    kind: elevated ? 'priority' : 'no_action',
+    severity,
+    actionType: elevated ? 'recommendation' : 'information',
+    confidence: v.saleDays >= 7 ? 'high' : 'medium',
+    score: elevated
+      ? score(severity, rel.dailyRevenue, 1, s.dailyTarget) + (c.stock === 0 ? 10 : imminent ? 5 : 0)
+      : Math.min(COMMAND_MIN_SCORE - 1, score(severity, rel.dailyRevenue, 1, s.dailyTarget)),
+    title,
+    issue,
+    evidence: [
+      { label: 'FATO', text: `Estoque atual: ${stockText}.` },
+      { label: 'FATO', text: `Velocidade média: ${velocityText} (${periodText}; ${velocityMath}).` },
+      ...(trendText ? [{ label: 'FATO' as const, text: trendText }] : []),
+      { label: 'FATO', text: `Cobertura matemática: ${coverageMath}. Margem de segurança: nenhuma aplicada — cobertura considerada = cobertura matemática.` },
+      ...(classLabel ? [{ label: 'FATO' as const, text: `Classificação: ${classLabel}.` }] : []),
+      { label: 'FATO', text: `Relevância comercial — ${relevanceText}` },
+      { label: 'INTERPRETAÇÃO', text: `Por que apareceu: ${whyText}` },
+      ...(rel.tier === 'high'
+        ? [{ label: 'INTERPRETAÇÃO' as const, text: `Cerca de ${formatBRL(atStake)} de faturamento exposto se a venda for interrompida antes de ${fmtDays(s.stockRiskDays)}.` }]
+        : [{ label: 'INTERPRETAÇÃO' as const, text: 'Relevância moderada: o risco existe, mas não é elevado a prioridade do Comando.' }]),
+      ...(c.stock > 0
+        ? [{ label: 'HIPÓTESE' as const, text: `Se o ritmo se mantiver, o estoque se esgota em cerca de ${coverageText}.` }]
+        : []),
+    ],
+    data: [
+      ...commonData,
+      { label: 'Estoque atual', value: stockText },
+      { label: 'Velocidade média', value: velocityText },
+      { label: 'Período analisado', value: periodText },
+      { label: 'Cobertura matemática', value: coverageMath },
+      { label: 'Margem de segurança', value: 'nenhuma' },
+      { label: 'Cobertura considerada', value: c.stock === 0 ? '0 dias' : coverageText },
+      { label: 'Limite de risco · crítico', value: `${fmtDays(s.stockRiskDays)} · ${fmtDays(s.stockCriticalDays)}` },
+      ...(classLabel ? [{ label: 'Classificação', value: classLabel }] : []),
+      { label: 'Relevância comercial', value: `${RELEVANCE_LABEL[rel.tier]} · ${formatBRL(rel.dailyRevenue)}/dia · ${sharePct} da meta` },
+      { label: 'Nível do alerta', value: ALERT_LEVEL_LABEL[level] },
+    ],
+    recommendation: action,
+    reason: `Por que apareceu: ${whyText}`,
+    objective: 'Evitar interrupção comercial do anúncio.',
+    suggestsChange: false,
+    alert:
+      severity === 'info'
+        ? undefined
+        : {
+            type: 'stockout_risk',
+            severity,
+            message:
+              c.stock === 0
+                ? `${title}: risco comercial de ruptura — sem estoque (velocidade ${velocityText}, ${periodText}).`
+                : `${title}: risco comercial de ruptura — ${coverageMath} (${periodText}).`,
+          },
+    trace: [
+      `Ruptura · nível ${ALERT_LEVEL_LABEL[level]}: ${coverageMath}, relevância ${rel.tier}, velocidade ${v.trend}${elevated ? '' : ' — não elevado a prioridade'}.`,
+    ],
+  }
+}
+
+const CLASSIFICATION_LABEL: Record<Classification, string> = {
+  motor_de_giro: 'Motor de Giro',
+  produto_de_margem: 'Produto de Margem',
+  alto_ticket: 'Alto Ticket',
+  em_teste: 'Em Teste',
+  sazonal: 'Sazonal',
+  observacao: 'Observação',
+  sem_classificacao: 'Sem classificação',
+}
+
+const RELEVANCE_LABEL = { high: 'Alta', medium: 'Moderada', low: 'Baixa' } as const
+
+function round1(n: number) {
+  return Math.round(n * 10) / 10
+}
+function round2(n: number) {
+  return Math.round(n * 100) / 100
+}
+function fmtNum(n: number, digits: number) {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+type CompetitivePerf = { convVsBase: number | null; ordersVsBase: number | null; baseOrders: number | null }
+
+/** Operational class to pick the next diagnosis — not a score. */
+export type PressureLevel = 'none' | 'light' | 'relevant' | 'unviable'
+export const PRESSURE_LABEL: Record<PressureLevel, string> = {
+  none: 'Sem pressão competitiva identificada',
+  light: 'Pressão competitiva leve',
+  relevant: 'Pressão competitiva relevante',
+  unviable: 'Pressão competitiva + preço economicamente inviável',
+}
+
+export type Pressure = {
+  level: PressureLevel
+  rival: CompetitorOffer
+  gap: number
+  /** Lowest price that respects the configured minimum margin (break-even when no minimum). */
+  floor: number | null
+  viable: boolean | null
+  isolated: boolean
+  bandText: string | null
+  economyText: string
+  facts: Evidence[]
+  data: EvidenceDatum[]
+}
+
+function offerDescription(o: CompetitorOffer) {
+  const parts = [
+    o.freeShipping === true ? 'frete grátis' : o.freeShipping === false ? 'sem frete grátis' : null,
+    o.isFull === true ? 'Full' : o.isFull === false ? 'sem Full' : null,
+    o.soldQuantity !== null ? `${formatInt(o.soldQuantity)} vendas` : null,
+  ].filter(Boolean)
+  return `${o.name}: ${formatBRL(o.price)}${parts.length ? ` (${parts.join(', ')})` : ''}, observado em ${fmtDate(o.observedOn)} · fonte ${o.source}`
+}
+
+function median(values: number[]) {
+  const v = [...values].sort((a, b) => a - b)
+  const m = Math.floor(v.length / 2)
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2
+}
+
+/**
+ * Competitor price vs our price vs our floor (cost + fees + minimum margin).
+ * A single offer far below the others is reported as isolated, never as "the market".
+ */
+export function competitivePressure(
+  c: Pick<ChannelStats, 'competition' | 'price' | 'pricing'>,
+  s: Pick<EngineSettings, 'competitivePriceGapPct'>,
+): Pressure | null {
+  const comp = c.competition
+  if (!comp || c.price <= 0 || comp.cheapest.price <= 0) return null
+  const cheapest = comp.cheapest
+  const p = c.pricing
+  const floor = p.status === 'ok' ? (p.minMarginPrice ?? p.breakEvenPrice) : null
+  const others = comp.all.slice(1).map((o) => o.price)
+  const isolatedCut = Math.max(10, s.competitivePriceGapPct) / 100
+  const isolated = others.length >= 2 && cheapest.price < median(others) * (1 - isolatedCut)
+  const bandText = others.length ? `${formatBRL(Math.min(...others))} – ${formatBRL(Math.max(...others))}` : null
+  // An isolated offer is reported, but the pressure level is measured against the observed band.
+  const rival = isolated ? comp.all[1] : cheapest
+  const gap = ((c.price - rival.price) / rival.price) * 100
+  const viable = floor === null ? null : rival.price >= floor
+  const isolatedGap = isolated ? ((c.price - cheapest.price) / cheapest.price) * 100 : null
+
+  const level: PressureLevel = gap <= 0 ? 'none' : gap < s.competitivePriceGapPct ? 'light' : viable === false ? 'unviable' : 'relevant'
+
+  const floorLabel = p.status === 'ok' && p.minMarginPrice !== null ? `margem mínima de ${formatPct(p.minMarginPct ?? 0)}` : 'ponto de equilíbrio'
+  const belowBreakEven = p.status === 'ok' && p.breakEvenPrice !== null && rival.price < p.breakEvenPrice
+  const economyText =
+    floor === null
+      ? 'Margem desconhecida (custo ou taxa ausente): não é possível dizer se acompanhar a oferta é viável.'
+      : viable
+        ? `Acompanhar ${formatBRL(rival.price)} ainda respeitaria o piso econômico de ${formatBRL(floor)} (${floorLabel}).`
+        : `Acompanhar ${formatBRL(rival.price)} não é viável: o piso econômico é ${formatBRL(floor)} (${floorLabel})${belowBreakEven ? `, e o preço observado fica abaixo até do ponto de equilíbrio (${formatBRL(p.breakEvenPrice!)}) — daria prejuízo` : ''}.`
+
+  const facts: Evidence[] = [
+    { label: 'FATO', text: `Nosso preço: ${formatBRL(c.price)}.` },
+    ...(isolated
+      ? [
+          { label: 'FATO' as const, text: `Oferta isolada — ${offerDescription(cheapest)}. Diferença: ${formatPct(isolatedGap!, true)}.` },
+          { label: 'FATO' as const, text: `Demais ofertas observadas: ${bandText} (${formatInt(others.length)} vendedores). Menor da faixa — ${offerDescription(rival)}. Diferença: ${formatPct(gap, true)}.` },
+          {
+            label: 'INTERPRETAÇÃO' as const,
+            text: `Oferta isolada abaixo da faixa observada. Ela não representa o preço do mercado; a pressão foi medida contra a faixa (${bandText}).`,
+          },
+        ]
+      : [
+          { label: 'FATO' as const, text: `Oferta concorrente observada — ${offerDescription(rival)}. Diferença: ${formatPct(gap, true)}.` },
+          ...(bandText ? [{ label: 'FATO' as const, text: `Demais ofertas observadas: ${bandText} (${formatInt(others.length)} vendedor${others.length === 1 ? '' : 'es'}).` }] : []),
+        ]),
+  ]
+  const data: EvidenceDatum[] = [
+    { label: 'Nosso preço', value: formatBRL(c.price) },
+    ...(isolated ? [{ label: 'Oferta isolada', value: `${formatBRL(cheapest.price)} · ${cheapest.name} · ${fmtDate(cheapest.observedOn)}` }] : []),
+    { label: isolated ? 'Referência (menor da faixa)' : 'Menor oferta observada', value: `${formatBRL(rival.price)} · ${rival.name} · ${fmtDate(rival.observedOn)}` },
+    { label: 'Diferença', value: `${formatBRL(c.price - rival.price)} (${formatPct(gap, true)})` },
+    ...(bandText ? [{ label: 'Faixa das demais ofertas', value: bandText }] : []),
+    { label: 'Fonte da observação', value: rival.source },
+    ...(floor !== null ? [{ label: 'Piso econômico', value: `${formatBRL(floor)} (${floorLabel})` }] : []),
+    ...(p.status === 'ok' ? [{ label: 'Margem atual', value: formatPct(p.marginPct) }] : []),
+    { label: 'Pressão competitiva', value: PRESSURE_LABEL[level] },
+  ]
+  return { level, rival, gap, floor, viable, isolated, bandText, economyText, facts, data }
+}
+
+/** Concrete, testable levers when price cannot (or should not) be the lever. Never executed automatically. */
+function alternativeLevers(c: ChannelStats, trafficDown: boolean | null) {
+  const sku = c.sku || c.productName
+  const exposure = `verificar exposição orgânica, posição e Ads do anúncio ${sku}`
+  const content = `testar nova capa no anúncio ${sku} (primeira imagem destacando material, medidas e aplicação)`
+  const condition = 'conferir frete, Full e prazo de entrega frente à oferta observada'
+  return trafficDown ? `${exposure}; depois ${content}; ${condition}` : `${content}; ${condition}; ${exposure}`
+}
+
+/**
+ * Competitor prices are FACTS; their effect on our sales is always a HYPOTHESIS.
+ * Never recommends matching a rival: the economic floor decides first, then other levers.
+ */
+function evaluateCompetition(
+  c: ChannelStats,
+  s: EngineSettings,
+  profile: Profile,
+  ids: SignalIds,
+  title: string,
+  commonData: EvidenceDatum[],
+  perf: CompetitivePerf,
+): Signal | null {
+  const pr = competitivePressure(c, s)
+  if (!pr) return null
+  const { rival, gap } = pr
+  const sig = s.significantChangePct
+  const measurable = perf.convVsBase !== null || perf.ordersVsBase !== null
+  const weakening =
+    (perf.convVsBase !== null && perf.convVsBase <= -sig / 2) || (perf.ordersVsBase !== null && perf.ordersVsBase <= -sig / 2)
+  const p = c.pricing
+  const solidSample = (perf.baseOrders ?? 0) >= s.minOrdersHistory
+  const perfText = measurable
+    ? `Desempenho vs base: pedidos ${perf.ordersVsBase !== null ? formatPct(perf.ordersVsBase, true) : '—'}, conversão ${perf.convVsBase !== null ? formatPct(perf.convVsBase, true) : '—'}.`
+    : 'Sem base histórica suficiente para medir impacto no desempenho.'
+  const common = { ...ids, title, data: [...commonData, ...pr.data] }
+  const economy: Evidence = { label: 'INTERPRETAÇÃO', text: pr.economyText }
+
+  if (pr.level === 'relevant' || pr.level === 'unviable') {
+    if (weakening) {
+      const unviable = pr.level === 'unviable'
+      const atStake = Math.max(0, (perf.baseOrders ?? 0) * c.price - c.revenueCur)
+      const confidence = capConfidence(p.status === 'ok' && solidSample && !pr.isolated ? 'medium' : 'low', profile.maxConfidence)
+      return {
+        ...common,
+        fingerprint: `R11:${c.productChannelId}`,
+        ruleCode: 'R11_COMPETITIVE',
+        kind: 'opportunity',
+        severity: 'attention',
+        actionType: unviable ? 'recommendation' : 'approval_required',
+        confidence,
+        score: score('attention', atStake, c.windowDays, s.dailyTarget),
+        issue: unviable
+          ? 'Pressão competitiva sem espaço econômico para acompanhar — não entrar em guerra de preço.'
+          : `Pressão competitiva relevante: oferta ${formatPct(gap)} abaixo da nossa enquanto o desempenho enfraquece.`,
+        evidence: [
+          ...pr.facts,
+          { label: 'FATO', text: perfText },
+          { label: 'INTERPRETAÇÃO', text: 'Existe uma diferença relevante de preço que pode estar reduzindo nossa competitividade.' },
+          economy,
+          { label: 'HIPÓTESE', text: 'A diferença de preço pode estar contribuindo para a redução da conversão — não comprovado. Exposição, anúncio, frete e reputação continuam possíveis.' },
+        ],
+        recommendation: unviable
+          ? `Não reduzir o preço. Alavancas a testar: ${alternativeLevers(c, null)}.`
+          : `Antes de reduzir preço, ${alternativeLevers(c, null)}. Sem sinal em 7 dias, avaliar teste controlado de preço sem descer abaixo de ${formatBRL(pr.floor ?? c.price)}.`,
+        reason: 'Preço de concorrente não comprova causa da queda; reagir sem teste sacrifica margem sem garantia de venda.',
+        objective: 'Recuperar conversão e pedidos sem violar o piso econômico.',
+        suggestsChange: !unviable,
+        alert: {
+          type: 'competitive_pressure',
+          severity: 'attention',
+          message: `${title}: ${PRESSURE_LABEL[pr.level].toLowerCase()} — oferta de ${formatBRL(rival.price)} vs nosso ${formatBRL(c.price)}.`,
+        },
+      }
+    }
+    return {
+      ...common,
+      fingerprint: `R11I:${c.productChannelId}`,
+      ruleCode: 'R11_COMPETITIVE_INFO',
+      kind: 'no_action',
+      severity: 'info',
+      actionType: 'information',
+      confidence: 'high',
+      score: 14,
+      issue: measurable
+        ? `${PRESSURE_LABEL[pr.level]}, mas o desempenho se mantém.`
+        : `${PRESSURE_LABEL[pr.level]}; ainda sem base para medir impacto.`,
+      evidence: [
+        ...pr.facts,
+        { label: 'FATO', text: perfText },
+        economy,
+        {
+          label: 'INTERPRETAÇÃO',
+          text: measurable ? 'Não há evidência de que a diferença esteja afetando as vendas.' : 'Sem histórico, a diferença é apenas contexto — não indica venda perdida.',
+        },
+      ],
+      recommendation: 'Nenhuma ação. Manter o preço e continuar observando.',
+      reason: 'Reagir a preço de concorrente sem impacto medido sacrifica margem sem necessidade.',
+      objective: 'Proteger a margem enquanto o desempenho se sustentar.',
+      suggestsChange: false,
+    }
+  }
+
+  // Oportunidade de diferenciação: preço próximo da menor oferta, com vantagem observável.
+  if (Math.abs(gap) < s.competitivePriceGapPct && (profile.volumeDriven || c.classification === 'motor_de_giro')) {
+    const advantages = [
+      solidSample ? `histórico de ${formatInt(Math.round(perf.baseOrders ?? 0))} pedidos no período de referência` : null,
+      rival.isFull === false ? 'concorrente sem Full' : null,
+      rival.soldQuantity !== null && rival.soldQuantity < 50 ? `concorrente com histórico pequeno (${formatInt(rival.soldQuantity)} vendas)` : null,
+    ].filter((a): a is string => a !== null)
+    // A cover test is a conversion lever: only suggested when traffic exists and conversion is measured and not improving.
+    const conversionRoom = c.visitsCur !== null && c.visitsCur > 0 && perf.convVsBase !== null && perf.convVsBase <= 0
+    if (!advantages.length || !conversionRoom) return null
+    return {
+      ...common,
+      fingerprint: `R13:${c.productChannelId}`,
+      ruleCode: 'R13_DIFFERENTIATION',
+      kind: 'opportunity',
+      severity: 'positive',
+      actionType: 'approval_required',
+      confidence: capConfidence(solidSample ? 'medium' : 'low', profile.maxConfidence),
+      score: score('positive', c.revenueCur * 0.05, c.windowDays, s.dailyTarget),
+      issue: `Oportunidade de diferenciação: nosso preço está próximo da menor oferta observada (${formatPct(gap, true)}).`,
+      evidence: [
+        ...pr.facts,
+        { label: 'FATO', text: `Vantagens observáveis: ${advantages.join('; ')}.` },
+        { label: 'FATO', text: perfText },
+        { label: 'INTERPRETAÇÃO', text: 'Não há evidência suficiente para justificar redução de preço.' },
+        { label: 'HIPÓTESE', text: 'Uma apresentação mais forte pode aumentar a conversão sem entrar em guerra de preço.' },
+      ],
+      recommendation: `Testar nova capa do anúncio ${c.sku || c.productName}: primeira imagem destacando material, medidas e aplicação. Métrica: conversão + pedidos. Período: 7 dias. Manter se conversão/pedidos melhorarem; desfazer se não houver sinal.`,
+      reason: 'Produto não é só preço: diferenciação preserva margem.',
+      objective: 'Ganhar conversão por diferenciação, mantendo o preço.',
+      suggestsChange: true,
+    }
+  }
+
+  if (gap <= -s.competitivePriceGapPct) {
+    const ourAdvantage = formatPct(Math.abs(gap))
+    const raised = rival.previousPrice !== null && rival.price > rival.previousPrice * 1.02
+    if (raised) {
+      return {
+        ...common,
+        fingerprint: `R11:${c.productChannelId}`,
+        ruleCode: 'R11_COMPETITIVE',
+        kind: 'opportunity',
+        severity: 'positive',
+        actionType: 'information',
+        confidence: capConfidence('medium', profile.maxConfidence),
+        score: score('positive', c.revenueCur, c.windowDays, s.dailyTarget),
+        issue: `${rival.name} subiu o preço (${formatBRL(rival.previousPrice!)} → ${formatBRL(rival.price)}); nossa oferta ficou ${ourAdvantage} mais barata.`,
+        evidence: [
+          ...pr.facts,
+          { label: 'FATO', text: perfText },
+          { label: 'INTERPRETAÇÃO', text: 'Nossa oferta ficou relativamente mais competitiva.' },
+          { label: 'HIPÓTESE', text: 'Pode haver ganho de conversão se a exposição acompanhar.' },
+        ],
+        recommendation: 'Não mexer no preço agora. Garantir estoque e exposição (Ads/posição) para capturar a demanda.',
+        reason: 'A vantagem já existe; o gargalo passa a ser estar visível e disponível.',
+        objective: 'Converter a vantagem de preço em pedidos.',
+        suggestsChange: false,
+      }
+    }
+    if (!weakening && measurable && p.status === 'ok' && p.marginPct < s.targetMarginPct) {
+      return {
+        ...common,
+        fingerprint: `R11:${c.productChannelId}`,
+        ruleCode: 'R11_COMPETITIVE',
+        kind: 'opportunity',
+        severity: 'positive',
+        actionType: 'approval_required',
+        confidence: capConfidence(solidSample ? 'medium' : 'low', profile.maxConfidence),
+        score: score('positive', c.revenueCur * 0.05, c.windowDays, s.dailyTarget),
+        issue: `Nossa oferta está ${ourAdvantage} abaixo da menor oferta observada, com margem de ${formatPct(p.marginPct)} (meta ${formatPct(s.targetMarginPct)}).`,
+        evidence: [
+          ...pr.facts,
+          { label: 'FATO', text: perfText },
+          { label: 'INTERPRETAÇÃO', text: 'O desempenho está estável e há distância de preço até o concorrente.' },
+          { label: 'HIPÓTESE', text: 'Pode haver espaço para um teste controlado de aumento de preço sem perda relevante de conversão.' },
+        ],
+        recommendation: 'Avaliar teste controlado de aumento de preço por 7 dias, acompanhando conversão e margem.',
+        reason: 'Recuperar margem testando, não supondo.',
+        objective: `Aproximar a margem da meta de ${formatPct(s.targetMarginPct)} sem perder conversão.`,
+        suggestsChange: true,
+      }
+    }
+  }
+  return null
+}
+
+const PACE_MIN_REF_PER_DAY = 3
+const PACE_MIN_DROP_PCT = 60
+
+/** Short-term pace of a listing: reference (day before yesterday or prior-7 average) vs last 2 days. */
+function shortPace(c: ChannelStats) {
+  const prior7Rate = c.unitsPrior7 / 7
+  const ref = Math.max(c.unitsD2, prior7Rate)
+  const nowRate = c.units2 / 2
+  const drop = ref > 0 ? (1 - nowRate / ref) * 100 : 0
+  return { prior7Rate, ref, nowRate, drop }
+}
+
+function isPaceDrop(c: ChannelStats) {
+  if (c.historyDays < 10) return false
+  const pace = shortPace(c)
+  // "Hoje" is partial: only fires when two days together sold less than one reference day.
+  return pace.ref >= PACE_MIN_REF_PER_DAY && c.units2 < pace.ref && pace.drop >= PACE_MIN_DROP_PCT
+}
+
+/**
+ * A motor de giro losing pace fast: sales → traffic → conversion → price/competition → stock,
+ * stopping where the evidence is enough. Other motors are checked later by applyMotorCascade.
+ */
+function evaluatePaceDrop(c: ChannelStats, s: EngineSettings, ids: SignalIds, title: string, commonData: EvidenceDatum[]): Signal | null {
+  if (c.classification !== 'motor_de_giro' || !isPaceDrop(c)) return null
+  const pace = shortPace(c)
+  const sig = s.significantChangePct
+  const refText = `${fmtNum(pace.ref, 1)} un/dia`
+  const nowText = `${formatInt(c.units2)} un em ontem + hoje (parcial)`
+  const evidence: Evidence[] = [
+    { label: 'FATO', text: `Antes de ontem: ${formatInt(c.unitsD2)} un. Média dos 7 dias anteriores: ${fmtNum(pace.prior7Rate, 1)} un/dia. Agora: ${nowText}.` },
+  ]
+
+  let next: string
+  let reading: string
+  let trafficDown: boolean | null = null
+  if (c.stock === 0) {
+    evidence.push({ label: 'FATO', text: 'Estoque zerado no marketplace.' })
+    reading = 'A queda coincide com falta de disponibilidade.'
+    next = 'Confirmar estoque e reposição antes de qualquer outra análise.'
+  } else {
+    const visitsRef = c.visitsPrior7 !== null && c.visitsPrior7 > 0 ? c.visitsPrior7 / 7 : null
+    const visitsNow = c.visits2 !== null ? c.visits2 / 2 : null
+    const trafficChg = visitsRef !== null && visitsNow !== null ? pctChange(visitsNow, visitsRef) : null
+    if (trafficChg === null) {
+      evidence.push({ label: 'FATO', text: 'Visitas de curto prazo não sincronizadas para este anúncio.' })
+      evidence.push({ label: 'INTERPRETAÇÃO', text: 'Não é possível separar tráfego de conversão; causa ainda não determinada.' })
+      reading = 'Queda forte de vendas, causa ainda não determinada.'
+      next = 'Verificar visitas, exposição e conversão no painel do marketplace.'
+    } else if (trafficChg <= -sig) {
+      trafficDown = true
+      evidence.push({ label: 'FATO', text: `Visitas: ${fmtNum(visitsRef!, 0)}/dia nos 7 dias anteriores → ${fmtNum(visitsNow!, 0)}/dia agora (${formatPct(trafficChg, true)}).` })
+      evidence.push({ label: 'INTERPRETAÇÃO', text: 'Queda de tráfego identificada, mas causa ainda não determinada.' })
+      reading = 'Tráfego caiu junto com as vendas.'
+      next = 'Verificar exposição orgânica, posição, Ads, promoção e disponibilidade do anúncio.'
+    } else {
+      trafficDown = false
+      const convRef = c.unitsPrior7 > 0 && c.visitsPrior7 ? (c.unitsPrior7 / c.visitsPrior7) * 100 : null
+      const convNow = c.visits2 ? (c.units2 / c.visits2) * 100 : null
+      evidence.push({
+        label: 'FATO',
+        text: `Visitas estáveis (${formatPct(trafficChg, true)}).${convRef !== null && convNow !== null ? ` Unidades por visita: ${formatPct(convRef)} → ${formatPct(convNow)}.` : ''}`,
+      })
+      evidence.push({ label: 'INTERPRETAÇÃO', text: 'Tráfego normal e conversão em queda: investigar preço, concorrência, capa, título, frete/prazo e condição comercial.' })
+      reading = 'Conversão caiu com tráfego estável.'
+      next = 'Revisar capa, título e condição comercial frente às ofertas concorrentes.'
+    }
+  }
+
+  const pr = competitivePressure(c, s)
+  const data: EvidenceDatum[] = [
+    ...commonData,
+    { label: 'Antes', value: refText },
+    { label: 'Agora', value: nowText },
+    { label: 'Sinal', value: `queda de ${formatPct(pace.drop)} no ritmo` },
+  ]
+  if (pr) {
+    evidence.push(...pr.facts, { label: 'INTERPRETAÇÃO', text: pr.economyText })
+    if (pr.level === 'unviable') {
+      reading += ' Pressão competitiva identificada, mas redução de preço não é a melhor alavanca disponível.'
+      next += ` Não entrar em guerra de preço; alternativas: ${alternativeLevers(c, trafficDown)}.`
+    } else if (pr.level === 'relevant') {
+      reading += ' Há pressão competitiva relevante e o preço ainda tem espaço econômico.'
+      next += ` Antes de reduzir preço, ${alternativeLevers(c, trafficDown)}.`
+    } else {
+      reading += ` ${PRESSURE_LABEL[pr.level]}.`
+    }
+    data.push(
+      { label: 'Concorrência', value: `oferta observada a ${formatBRL(pr.rival.price)}${pr.isolated ? ' (isolada)' : ''}` },
+      { label: 'Nosso preço', value: formatBRL(c.price) },
+      { label: 'Economia', value: pr.viable === null ? 'margem desconhecida' : pr.viable ? 'acompanhar é viável' : 'acompanhar não é viável no limite econômico atual' },
+    )
+  } else {
+    evidence.push({ label: 'FATO', text: 'Sem observação de concorrência registrada para este anúncio.' })
+    data.push({ label: 'Nosso preço', value: formatBRL(c.price) })
+  }
+  evidence.push({ label: 'HIPÓTESE', text: 'A causa ainda precisa ser confirmada; os próximos passos seguem a ordem tráfego → conversão → preço → anúncio.' })
+  next += ' Comparar com os outros motores de giro.'
+  data.push({ label: 'Leitura', value: reading }, { label: 'Próximo passo', value: next }, { label: 'Status', value: 'INVESTIGAR' })
+
+  const severity: Severity = pace.drop >= 80 && pace.ref >= 5 ? 'critical' : 'attention'
+  const atStake = Math.max(0, (pace.ref - pace.nowRate) * 2 * c.price)
+  return {
+    ...ids,
+    fingerprint: `R12:${c.productChannelId}`,
+    ruleCode: 'R12_PACE_DROP',
+    kind: 'priority',
+    severity,
+    actionType: 'recommendation',
+    confidence: 'medium',
+    score: score(severity, atStake, 2, s.dailyTarget) + 5,
+    title,
+    issue: `Motor de giro desacelerou: de ${refText} para ${nowText}.`,
+    evidence,
+    data,
+    recommendation: `Investigar. ${next}`,
+    reason: `${reading} Queda forte em motor de giro move a meta diária.`,
+    objective: 'Identificar a causa e recuperar o ritmo do motor de giro.',
+    suggestsChange: false,
+    alert: { type: 'pace_drop', severity, message: `${title}: queda de ritmo — ${refText} → ${nowText}.` },
+    trace: [`Ritmo curto: ref ${fmtNum(pace.ref, 2)} un/dia, agora ${fmtNum(pace.nowRate, 2)} un/dia, queda ${round1(pace.drop)}%.`],
+  }
+}
+
+const DROP_RULES = new Set([...LOST_PACE_ORDER])
+
+/**
+ * When a motor de giro slows down, look at the other motors of the same marketplace:
+ * one falling alone points to the listing; several at once point to traffic, marketplace,
+ * campaign, seasonality or operation — and the investigation gains relevance.
+ */
+export function applyMotorCascade(signals: Signal[], channels: ChannelStats[], s: EngineSettings): Signal[] {
+  const motors = channels.filter((c) => c.classification === 'motor_de_giro')
+  if (motors.length < 2) return signals
+  const motorPc = new Set(motors.map((m) => m.productChannelId))
+  const droppingPc = new Set(
+    signals.filter((sg) => sg.productChannelId !== null && motorPc.has(sg.productChannelId) && DROP_RULES.has(sg.ruleCode)).map((sg) => sg.productChannelId!),
+  )
+  if (!droppingPc.size) return signals
+
+  const out = [...signals]
+  const byMarket = new Map<number, ChannelStats[]>()
+  for (const m of motors) byMarket.set(m.marketplaceId, [...(byMarket.get(m.marketplaceId) ?? []), m])
+
+  for (const [marketplaceId, group] of byMarket) {
+    const dropping = group.filter((m) => droppingPc.has(m.productChannelId))
+    if (!dropping.length || group.length < 2) continue
+    const stable = group.length - dropping.length
+    const systemic = dropping.length >= 2
+    const names = dropping.map((m) => m.sku || m.productName)
+    const note: Evidence = systemic
+      ? {
+          label: 'INTERPRETAÇÃO',
+          text: `${formatInt(dropping.length)} de ${formatInt(group.length)} motores de giro em ${group[0].marketplaceName} caíram ao mesmo tempo (${names.join(', ')}): possível causa sistêmica (tráfego, exposição, marketplace, campanha, sazonalidade ou operação).`,
+        }
+      : {
+          label: 'INTERPRETAÇÃO',
+          text: `Queda isolada: os outros ${formatInt(stable)} motores de giro em ${group[0].marketplaceName} mantêm ritmo — causa provavelmente específica deste anúncio.`,
+        }
+    for (let i = 0; i < out.length; i++) {
+      const sg = out[i]
+      if (sg.productChannelId === null || !dropping.some((m) => m.productChannelId === sg.productChannelId) || !DROP_RULES.has(sg.ruleCode)) continue
+      out[i] = { ...sg, evidence: [...sg.evidence, note], score: sg.score + (systemic ? 5 : 0), trace: [...(sg.trace ?? []), `Cascata de motores: ${systemic ? 'sistêmica' : 'isolada'}.`] }
+    }
+    if (!systemic) continue
+
+    const view = group.map((m) => {
+      const pace = shortPace(m)
+      const pr = competitivePressure(m, s)
+      return {
+        label: m.sku || m.productName,
+        value: `${fmtNum(pace.ref, 1)} → ${fmtNum(pace.nowRate, 1)} un/dia · ${formatBRL(m.revenueCur)} (${m.windowDays}d) · ${formatInt(m.ordersCur)} pedidos · ${m.visitsCur !== null ? `${formatInt(m.visitsCur)} visitas` : 'visitas —'} · ${formatBRL(m.price)}${pr ? ` · ${PRESSURE_LABEL[pr.level].toLowerCase()}` : ''} · ${droppingPc.has(m.productChannelId) ? 'em queda' : 'estável'}`,
+      }
+    })
+    const lostPerDay = dropping.reduce((sum, m) => {
+      const pace = shortPace(m)
+      return sum + Math.max(0, pace.ref - pace.nowRate) * m.price
+    }, 0)
+    out.push({
+      fingerprint: `R14:${marketplaceId}`,
+      ruleCode: 'R14_SYSTEMIC_MOTORS',
+      kind: 'priority',
+      severity: 'attention',
+      actionType: 'recommendation',
+      confidence: dropping.length >= 3 ? 'high' : 'medium',
+      score: score('attention', lostPerDay, 1, s.dailyTarget) + 10,
+      productId: null,
+      productChannelId: null,
+      marketplaceId,
+      experimentId: null,
+      title: `Motores de giro · ${group[0].marketplaceName}`,
+      issue: `${formatInt(dropping.length)} de ${formatInt(group.length)} motores de giro desaceleraram ao mesmo tempo.`,
+      evidence: [
+        { label: 'FATO', text: `Em queda: ${names.join(', ')}. Estáveis: ${formatInt(stable)}.` },
+        note,
+        { label: 'HIPÓTESE', text: 'A causa pode estar fora dos anúncios individuais; mexer em preço produto a produto pode não resolver.' },
+      ],
+      data: view,
+      recommendation: `Investigar o canal antes dos anúncios: visitas totais de ${group[0].marketplaceName}, campanhas/Ads, reputação, prazo de envio e mudanças do marketplace.`,
+      reason: 'Queda simultânea em vários motores indica problema sistêmico, não individual.',
+      objective: 'Confirmar ou descartar causa sistêmica antes de agir produto a produto.',
+      suggestsChange: false,
+      alert: { type: 'systemic_motors', severity: 'attention', message: `${group[0].marketplaceName}: ${formatInt(dropping.length)} motores de giro em queda simultânea (${names.join(', ')}).` },
+      trace: [`Cascata sistêmica: ${dropping.length}/${group.length} motores em queda.`],
+    })
+  }
+  return out
 }
 
 /**
@@ -870,6 +1653,9 @@ export function applyExperimentGuard(signals: Signal[], experiments: ActiveExper
       actionType: 'information' as const,
       experimentId: exp.id,
       score: 30,
+      issue: signal.ruleCode === 'R11_COMPETITIVE'
+        ? 'Existe uma oportunidade competitiva, mas o produto está em teste. Recomendação bloqueada até a avaliação.'
+        : signal.issue,
       evidence: [
         ...signal.evidence,
         { label: 'FATO' as const, text: `Teste #${String(exp.id).padStart(4, '0')} (${exp.variable}) em andamento até ${fmtDate(exp.evaluationDate)}.` },

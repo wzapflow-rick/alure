@@ -61,6 +61,7 @@ export function priceChannel(
   channel: ChannelForPricing,
   rulesByMarketplace: Map<number, FeeRule[]>,
   targetMarginPct: number,
+  minMarginPct?: number,
 ) {
   return calculatePricing({
     price: channel.price,
@@ -70,5 +71,6 @@ export function priceChannel(
     category: channel.category,
     rules: rulesByMarketplace.get(channel.marketplaceId) ?? [],
     targetMarginPct,
+    minMarginPct,
   })
 }

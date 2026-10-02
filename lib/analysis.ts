@@ -28,6 +28,33 @@ const RUN_SELECT = `SELECT id, to_char(analysis_date,'YYYY-MM-DD') AS analysis_d
        channels_analyzed, signals, created, resolved, protected_by_tests, health, error FROM analysis_runs`
 
 /**
+ * Channel status must agree with what the brief shows: it is recounted from the recommendations that are
+ * actually open after the run (approved, dismissed or held items no longer make a channel critical).
+ * CRÍTICO: ≥1 open critical priority · ATENÇÃO: ≥1 open attention priority, or revenue below the base ·
+ * SAUDÁVEL: none of the above · DADOS INSUFICIENTES: no listing with enough history.
+ */
+async function reconcileHealth(health: ChannelHealth[]): Promise<ChannelHealth[]> {
+  const rows = await query<{ marketplace_id: string; critical: string; attention: string }>(
+    `SELECT marketplace_id,
+            COUNT(*) FILTER (WHERE severity = 'critical') AS critical,
+            COUNT(*) FILTER (WHERE severity = 'attention') AS attention
+       FROM recommendations
+      WHERE status = 'open' AND kind IN ('priority','test_review') AND marketplace_id IS NOT NULL
+      GROUP BY marketplace_id`,
+  )
+  return health.map((h) => {
+    if (h.status === 'insufficient_data') return h
+    const r = rows.find((x) => Number(x.marketplace_id) === h.marketplaceId)
+    const critical = Number(r?.critical ?? 0)
+    const attention = Number(r?.attention ?? 0)
+    if (critical) return { ...h, status: 'critical', reason: `${critical} prioridade(s) crítica(s) em aberto.` }
+    if (attention) return { ...h, status: 'attention', reason: `${attention} ponto(s) de atenção em aberto.` }
+    if (h.status === 'attention' && /abaixo da base/.test(h.reason)) return h
+    return { ...h, status: 'healthy', reason: 'Sem desvios relevantes frente à base histórica.' }
+  })
+}
+
+/**
  * SYNC → ANALYZE → DETECT → RECOMMEND → REMEMBER.
  * Stores every run; skips when another run started less than 10 minutes ago.
  */
@@ -44,7 +71,8 @@ export async function runAnalysis(trigger: AnalysisTrigger, user: SessionUser | 
   const runId = Number(claimed.id)
 
   try {
-    const result = await runEngine(user, runId)
+    const engine = await runEngine(user, runId)
+    const result = { ...engine, health: await reconcileHealth(engine.health) }
     await generateDailyBrief(user, runId, result.health)
     await query(
       `UPDATE analysis_runs SET status = 'success', finished_at = now(), channels_analyzed = $2, signals = $3,
