@@ -76,12 +76,21 @@ async function saveStock(client: PoolClient, channelId: string, qty: number | nu
  * Links a marketplace listing to an ALURE product by SKU. Listings without a matching SKU
  * are skipped (never auto-creating products). Price changes are recorded in price_history.
  */
-export async function upsertListing(client: PoolClient, marketplaceId: number, l: NormalizedListing) {
+export async function upsertListing(
+  client: PoolClient,
+  marketplaceId: number,
+  l: NormalizedListing,
+  opts: { linkOnly?: boolean } = {},
+) {
   const existing = await client.query<{ id: string; current_price: string }>(
     'SELECT id, current_price FROM product_channels WHERE marketplace_id = $1 AND external_id = $2',
     [marketplaceId, l.externalListingId],
   )
   const row = existing.rows[0]
+
+  // Order-derived listings carry a placeholder status/price; they must never overwrite
+  // what the listings endpoint just reported (this marked active listings as inactive).
+  if (row && opts.linkOnly) return true
 
   if (row) {
     await client.query(
@@ -220,7 +229,7 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     // Sold listings may be closed and absent from the listings search; link them from the order itself.
     await withTransaction(async (client) => {
       for (const listing of listingsFromOrders(orders)) {
-        await upsertListing(client, marketplaceId, listing)
+        await upsertListing(client, marketplaceId, listing, { linkOnly: true })
       }
     })
     // Orders are persisted before traffic so a visits failure never discards sales.

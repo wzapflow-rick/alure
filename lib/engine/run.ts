@@ -247,7 +247,7 @@ export async function loadChannelStats(
   const feeRules = await getActiveFeeRules(today)
   const competition = COMPETITIVE_INTELLIGENCE_ACTIVE ? await loadCompetition(today, competitorFreshDays) : new Map<number, Competition>()
 
-  return rows.map<ChannelStats & { category: string | null }>((r) => {
+  const stats = rows.map<ChannelStats & { category: string | null }>((r) => {
     const marketplaceId = Number(r.marketplace_id)
     const w = Number(r.window_days)
     const baseLen = Number(r.base_len)
@@ -312,6 +312,77 @@ export async function loadChannelStats(
       saleDays28: Number(r.sale_days_28),
       competition: competition.get(Number(r.product_channel_id)) ?? null,
     }
+  })
+  return primaryListings(stats, await loadCatalogChannelIds())
+}
+
+/** Channel ids flagged as catalog listings; empty until product_channels has the catalog column. */
+async function loadCatalogChannelIds() {
+  const col = await query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
+  )
+  if (!col[0]?.ok) return new Set<number>()
+  const rows = await query<{ id: string }>(`SELECT id FROM product_channels WHERE catalog_listing AND status = 'active'`)
+  return new Set(rows.map((r) => Number(r.id)))
+}
+
+/**
+ * One SKU can have several active listings in the same marketplace (e.g. traditional + catalog).
+ * The engine evaluates the SKU once: the catalog listing leads (price_to_win lives there), then the
+ * one with competition data, then the best seller. Sales and traffic of the others are added to it,
+ * so the SKU never appears twice in recommendations and its velocity is not split.
+ */
+export function primaryListings<T extends ChannelStats>(list: T[], catalogIds: Set<number>): T[] {
+  const groups = new Map<string, T[]>()
+  for (const c of list) {
+    const key = `${c.productId}:${c.marketplaceId}`
+    groups.set(key, [...(groups.get(key) ?? []), c])
+  }
+  const rank = (c: T) => [catalogIds.has(c.productChannelId) ? 1 : 0, c.competition ? 1 : 0, c.units28, -c.productChannelId]
+  const better = (a: T, b: T) => {
+    const ra = rank(a)
+    const rb = rank(b)
+    for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] > rb[i]
+    return false
+  }
+  const addNullable = (a: number | null, b: number | null) => (a === null && b === null ? null : (a ?? 0) + (b ?? 0))
+
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0]
+    const lead = group.reduce((best, c) => (better(c, best) ? c : best))
+    const merged = { ...lead }
+    for (const c of group) {
+      if (c === lead) continue
+      merged.ordersCur += c.ordersCur
+      merged.ordersPrev += c.ordersPrev
+      merged.unitsCur += c.unitsCur
+      merged.revenueCur += c.revenueCur
+      merged.revenuePrev += c.revenuePrev
+      merged.ordersBase += c.ordersBase
+      merged.revenueBase += c.revenueBase
+      merged.units7 += c.units7
+      merged.units14 += c.units14
+      merged.units28 += c.units28
+      merged.revenue14 += c.revenue14
+      merged.revenue28 += c.revenue28
+      merged.units2 += c.units2
+      merged.unitsD2 += c.unitsD2
+      merged.unitsPrior7 += c.unitsPrior7
+      merged.visitsCur = addNullable(merged.visitsCur, c.visitsCur)
+      merged.visitsPrev = addNullable(merged.visitsPrev, c.visitsPrev)
+      merged.visitsBase = addNullable(merged.visitsBase, c.visitsBase)
+      merged.visits2 = addNullable(merged.visits2, c.visits2)
+      merged.visitsPrior7 = addNullable(merged.visitsPrior7, c.visitsPrior7)
+      // Sale days overlap between listings; the larger count is the safe lower bound.
+      merged.saleDays14 = Math.max(merged.saleDays14, c.saleDays14)
+      merged.saleDays28 = Math.max(merged.saleDays28, c.saleDays28)
+      merged.saleDays90 = Math.max(merged.saleDays90, c.saleDays90)
+      if (c.lastSaleDate && (!merged.lastSaleDate || c.lastSaleDate > merged.lastSaleDate)) merged.lastSaleDate = c.lastSaleDate
+      // Full stock is shared by the SKU, so listings report the same units: keep the highest, never sum.
+      if (c.stock !== null) merged.stock = Math.max(merged.stock ?? 0, c.stock)
+    }
+    return merged
   })
 }
 
