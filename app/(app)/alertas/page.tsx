@@ -10,6 +10,14 @@ import { listAlerts } from '@/lib/queries'
 
 export const metadata: Metadata = { title: 'Alertas' }
 
+const ALERT_TYPE_LABEL: Record<string, string> = {
+  mix_risk: 'Risco de mix',
+  concentration: 'Dependência de produto',
+  revenue_motor_absent: 'Motor de faturamento ausente',
+  pace_drop: 'Motor de giro desacelerando',
+  systemic_motors: 'Motor de giro desacelerando',
+}
+
 export default async function AlertsPage() {
   const alerts = await listAlerts()
   return (
@@ -27,6 +35,7 @@ export default async function AlertsPage() {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
                     <Badge tone={severityTone(a.severity)}>{SEVERITY_LABEL[a.severity] ?? a.severity}</Badge>
+                    {ALERT_TYPE_LABEL[a.alert_type] ? <Badge>{ALERT_TYPE_LABEL[a.alert_type]}</Badge> : null}
                     {a.status === 'acknowledged' ? <Badge>Ciente</Badge> : null}
                     <span className="font-mono text-[11px] text-muted-foreground">{formatDateTime(a.updated_at)}</span>
                   </div>

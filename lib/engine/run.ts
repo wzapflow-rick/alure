@@ -25,6 +25,98 @@ import {
   type Competition,
   type Signal,
 } from '@/lib/engine/rules'
+import { evaluateMix, mixWindows, type MixDay, type MixListingContext, type MixVisitDay } from '@/lib/engine/mix'
+
+/** Daily sales per SKU and marketplace (all listings, including the catalog one) for the mix analysis. */
+export async function loadMixRows(today: string) {
+  const w = mixWindows(today)
+  const [sales, visits] = await Promise.all([
+    query<{ d: string; product_id: string; sku: string; name: string; marketplace_id: string; marketplace_name: string; orders: string; units: string; revenue: string }>(
+      `SELECT to_char(sm.metric_date,'YYYY-MM-DD') AS d, p.id AS product_id, p.sku, p.name,
+              m.id AS marketplace_id, m.name AS marketplace_name,
+              SUM(sm.orders) AS orders, SUM(COALESCE(NULLIF(sm.units,0), sm.orders)) AS units, SUM(sm.revenue) AS revenue
+         FROM sales_metrics sm
+         JOIN product_channels pc ON pc.id = sm.product_channel_id
+         JOIN products p ON p.id = pc.product_id
+         JOIN marketplaces m ON m.id = pc.marketplace_id
+        WHERE sm.metric_date BETWEEN $1::date AND $2::date
+        GROUP BY 1,2,3,4,5,6`,
+      [w.baseStart, w.evalDay],
+    ),
+    query<{ d: string; marketplace_id: string; visits: string }>(
+      `SELECT to_char(tm.metric_date,'YYYY-MM-DD') AS d, pc.marketplace_id, SUM(tm.visits) AS visits
+         FROM traffic_metrics tm JOIN product_channels pc ON pc.id = tm.product_channel_id
+        WHERE tm.metric_date BETWEEN $1::date AND $2::date
+        GROUP BY 1,2`,
+      [w.baseStart, w.evalDay],
+    ),
+  ])
+  const rows: MixDay[] = sales.map((r) => ({
+    date: r.d,
+    productId: Number(r.product_id),
+    sku: r.sku,
+    name: r.name,
+    marketplaceId: Number(r.marketplace_id),
+    marketplaceName: r.marketplace_name,
+    orders: Number(r.orders),
+    units: Number(r.units),
+    revenue: Number(r.revenue),
+  }))
+  const visitRows: MixVisitDay[] = visits.map((r) => ({ date: r.d, marketplaceId: Number(r.marketplace_id), visits: Number(r.visits) }))
+  return { rows, visits: visitRows }
+}
+
+/** Ads (last 7 closed days vs the 7 before) and promotion state per listing — read-only cause context. */
+async function loadMixContext(today: string): Promise<Map<number, MixListingContext>> {
+  const evalDay = addDays(today, -1)
+  const out = new Map<number, MixListingContext>()
+  const get = (id: number) => {
+    if (!out.has(id)) out.set(id, { adsClicksCur: null, adsClicksPrev: null, adsCostCur: null, adsCostPrev: null, promoActive: false, promoEndedRecently: false })
+    return out.get(id)!
+  }
+  try {
+    const ads = await query<{ pc: string; clicks_cur: string | null; clicks_prev: string | null; cost_cur: string | null; cost_prev: string | null }>(
+      `SELECT product_channel_id AS pc,
+              SUM(clicks) FILTER (WHERE metric_date >  $1::date - 7) AS clicks_cur,
+              SUM(clicks) FILTER (WHERE metric_date <= $1::date - 7) AS clicks_prev,
+              SUM(cost)   FILTER (WHERE metric_date >  $1::date - 7) AS cost_cur,
+              SUM(cost)   FILTER (WHERE metric_date <= $1::date - 7) AS cost_prev
+         FROM advertising_metrics
+        WHERE product_channel_id IS NOT NULL AND metric_date > $1::date - 14 AND metric_date <= $1::date
+        GROUP BY product_channel_id`,
+      [evalDay],
+    )
+    for (const a of ads) {
+      const c = get(Number(a.pc))
+      c.adsClicksCur = toNumber(a.clicks_cur) ?? 0
+      c.adsClicksPrev = toNumber(a.clicks_prev) ?? 0
+      c.adsCostCur = toNumber(a.cost_cur) ?? 0
+      c.adsCostPrev = toNumber(a.cost_prev) ?? 0
+    }
+    const promos = await query<{ pc: string; active: boolean; ended: boolean }>(
+      `SELECT pp.product_channel_id AS pc,
+              bool_or((pr.starts_at IS NULL OR pr.starts_at <= now()) AND (pr.ends_at IS NULL OR pr.ends_at > now())) AS active,
+              bool_or(pr.ends_at <= now() AND pr.ends_at > now() - interval '7 days') AS ended
+         FROM promotion_products pp JOIN promotions pr ON pr.id = pp.promotion_id
+        GROUP BY pp.product_channel_id`,
+    )
+    for (const p of promos) {
+      const c = get(Number(p.pc))
+      c.promoActive = !!p.active
+      c.promoEndedRecently = !!p.ended
+    }
+  } catch (e) {
+    // Ads/promo are optional context; a missing table must not stop the engine.
+    if (!['42P01', '42703'].includes((e as { code?: string }).code ?? '')) throw e
+  }
+  return out
+}
+
+/** Stable alert identity: listing, experiment, or the marketplace for channel-wide events. */
+function alertFingerprint(s: Signal) {
+  const key = s.productChannelId ?? s.experimentId ?? (s.marketplaceId !== null ? `m${s.marketplaceId}${s.productId ? `:${s.productId}` : ''}` : null)
+  return `${s.alert!.type}:${key}`
+}
 
 type ChannelRow = {
   product_channel_id: string
@@ -697,17 +789,23 @@ async function recordOutcomes(client: PoolClient, today: string) {
 export async function runEngine(user: SessionUser | null, analysisRunId: number | null = null) {
   const today = todayISO()
   const settings = await getEngineSettings()
-  const [channels, experiments, memories] = await Promise.all([
+  const [channels, experiments, memories, mixData, mixContext] = await Promise.all([
     loadChannelStats(today, settings.windowDays, settings.targetMarginPct, settings.competitorFreshDays, settings.minMarginPct),
     loadExperiments(today),
     loadMemories(),
+    loadMixRows(today),
+    loadMixContext(today),
   ])
 
-  const raw = applyMotorCascade(
-    channels.flatMap((c) => evaluateChannel(c, settings, today)),
-    channels,
-    settings,
-  )
+  const mix = evaluateMix({ today, rows: mixData.rows, visits: mixData.visits, channels, context: mixContext, settings })
+  const raw = [
+    ...applyMotorCascade(
+      channels.flatMap((c) => evaluateChannel(c, settings, today)),
+      channels,
+      settings,
+    ),
+    ...mix.signals,
+  ]
   const guarded = applyExperimentGuard(raw, experiments, today)
   const remembered = applyMemoryGuard(guarded.signals, memories)
   const preliminary: Signal[] = consolidateLostPace(remembered.signals)
@@ -737,6 +835,12 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       memories: memories.length,
     },
     overview,
+    mix: {
+      snapshots: mix.snapshots,
+      roles: mix.roles
+        .filter((r) => r.role !== 'regular')
+        .map((r) => ({ sku: r.sku, marketplaceId: r.marketplaceId, role: r.role, revenueShare: r.revenueShare, unitsShare: r.unitsShare, saleDays28: r.saleDays28 })),
+    },
     rulesFired,
     heldByTests: guarded.protectedCount,
     heldByMemory: remembered.heldByMemory,
@@ -789,10 +893,10 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
       }
 
       if (s.alert) {
-        const alertFingerprint = `${s.alert.type}:${s.productChannelId ?? s.experimentId}`
+        const alertKey = alertFingerprint(s)
         const before = await client.query<{ status: string; severity: string }>(
           `SELECT status, severity FROM alerts WHERE fingerprint = $1`,
-          [alertFingerprint],
+          [alertKey],
         )
         // Same event updates the existing alert. Dismissed/acknowledged only come back on escalation.
         const { rows: alertRows } = await client.query<{ id: string; status: string }>(
@@ -807,7 +911,7 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
              severity = EXCLUDED.severity, message = EXCLUDED.message, data = EXCLUDED.data, updated_at = now()
            RETURNING id, status`,
           [
-            alertFingerprint,
+            alertKey,
             s.alert.type, s.alert.severity, s.productId, s.productChannelId, s.marketplaceId,
             s.experimentId, s.alert.message,
             JSON.stringify({ evidence: s.evidence, data: s.data, rule: s.ruleCode, recommendation: s.recommendation }),
@@ -831,9 +935,7 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
     }
 
     const fingerprints = signals.map((s) => s.fingerprint)
-    const alertFingerprints = signals
-      .filter((s) => s.alert)
-      .map((s) => `${s.alert!.type}:${s.productChannelId ?? s.experimentId}`)
+    const alertFingerprints = signals.filter((s) => s.alert).map(alertFingerprint)
 
     const resolved = await client.query(
       `UPDATE recommendations SET status = 'resolved', resolved_at = now(), updated_at = now()
