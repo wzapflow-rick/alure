@@ -1,6 +1,6 @@
 import { Badge, type Tone } from '@/components/ui/badges'
 import { formatDateTime } from '@/lib/format'
-import type { AIBriefBlock } from '@/lib/ai/schemas'
+import type { AIBriefBlock, ChangeGroup, MetricLine, OpportunityCard, PendingCard, SignalCard } from '@/lib/ai/schemas'
 
 const CONFIDENCE: Record<'LOW' | 'MEDIUM' | 'HIGH', { tone: Tone; label: string }> = {
   HIGH: { tone: 'positive', label: 'Confiança alta' },
@@ -8,15 +8,144 @@ const CONFIDENCE: Record<'LOW' | 'MEDIUM' | 'HIGH', { tone: Tone; label: string 
   LOW: { tone: 'critical', label: 'Confiança baixa' },
 }
 
-function List({ title, items }: { title: string; items: string[] }) {
-  if (!items.length) return null
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">{children}</h3>
+}
+
+function List({ title, items }: { title: string; items: string[] | undefined }) {
+  if (!items?.length) return null
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">{title}</h3>
+      <SectionTitle>{title}</SectionTitle>
       <ul className="flex flex-col gap-1.5">
         {items.map((item, i) => (
           <li key={i} className="text-sm leading-relaxed text-pretty">
             {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+const deltaTone = (delta: string | null) =>
+  !delta ? 'text-muted-foreground' : delta.startsWith('+') ? 'text-positive' : delta.startsWith('−') ? 'text-critical' : 'text-foreground'
+
+function Changes({ groups }: { groups: ChangeGroup[] }) {
+  if (!groups.length) return null
+  return (
+    <div className="flex flex-col gap-3 md:col-span-2">
+      <SectionTitle>O que mudou</SectionTitle>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {groups.map((g) => (
+          <div key={g.source} className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 px-4 py-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">{g.source}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {`Anterior ${g.period_previous} · Atual ${g.period_current}`}
+              </span>
+            </div>
+            <table className="w-full text-sm">
+              <caption className="sr-only">{`Métricas de ${g.source}: período anterior e atual`}</caption>
+              <thead>
+                <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th scope="col" className="py-1 font-normal">Métrica</th>
+                  <th scope="col" className="py-1 text-right font-normal">Anterior</th>
+                  <th scope="col" className="py-1 text-right font-normal">Atual</th>
+                  <th scope="col" className="py-1 text-right font-normal">Variação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.rows.map((r) => (
+                  <tr key={r.name} className="border-t border-border">
+                    <th scope="row" className="py-1.5 text-left font-normal">{r.name}</th>
+                    {r.note ? (
+                      <td colSpan={3} className="py-1.5 text-right text-xs text-muted-foreground">
+                        {`Dados insuficientes: ${r.note}`}
+                      </td>
+                    ) : (
+                      <>
+                        <td className="py-1.5 text-right tabular text-muted-foreground">{r.from}</td>
+                        <td className="py-1.5 text-right tabular">{r.to}</td>
+                        <td className={`py-1.5 text-right tabular ${deltaTone(r.delta)}`}>{r.delta ?? '—'}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Line({ line }: { line: MetricLine }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+      <span className="text-muted-foreground">{line.name}</span>
+      <span className="tabular">
+        {`${line.previous} → ${line.current}`}
+        {line.delta ? <span className={`ml-2 ${deltaTone(line.delta)}`}>{line.delta}</span> : null}
+      </span>
+    </div>
+  )
+}
+
+function Signals({ cards }: { cards: SignalCard[] }) {
+  if (!cards.length) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionTitle>Possível sinal a investigar</SectionTitle>
+      {cards.map((c) => (
+        <div key={`${c.sku}-${c.canal}`} className="flex flex-col gap-1.5 rounded-md border border-dashed border-border px-4 py-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-medium">{c.produto}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{`${c.sku} · ${c.canal}`}</span>
+          </div>
+          {c.lines.map((l) => (
+            <Line key={l.name} line={l} />
+          ))}
+          {c.observacao ? <p className="text-sm leading-relaxed text-pretty">{c.observacao}</p> : null}
+          <p className="text-xs leading-relaxed text-muted-foreground">{c.motivo}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Opportunities({ cards }: { cards: OpportunityCard[] }) {
+  if (!cards.length) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionTitle>Oportunidades de monitoramento</SectionTitle>
+      {cards.map((c, i) => (
+        <div key={i} className="flex flex-col gap-1.5 rounded-md border border-border bg-surface-2 px-4 py-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-medium">{c.produto ?? c.canal}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{c.sku ? `${c.sku} · ${c.canal}` : 'Canal'}</span>
+          </div>
+          <Line line={c.line} />
+          <span className="font-mono text-[11px] text-muted-foreground">{c.period}</span>
+          <p className="text-sm leading-relaxed text-pretty">{c.interpretacao}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{c.motivo}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Pending({ items }: { items: PendingCard[] }) {
+  if (!items.length) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <SectionTitle>Dados pendentes</SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {items.map((p, i) => (
+          <li key={i} className="flex flex-col gap-0.5 text-sm leading-relaxed">
+            <span>{p.dado}</span>
+            <span className="text-xs text-muted-foreground">{p.impacto}</span>
           </li>
         ))}
       </ul>
@@ -44,7 +173,6 @@ export function AIReadingPanel({ block }: { block: AIBriefBlock | undefined }) {
 
   const a = block.analysis
   const confidence = CONFIDENCE[a.confidence]
-  const unverified = block.validation?.unverifiedNumbers ?? []
 
   return (
     <section aria-label="Leitura da IA" className="flex flex-col gap-5 rounded-lg border border-border bg-surface px-5 py-5">
@@ -101,19 +229,15 @@ export function AIReadingPanel({ block }: { block: AIBriefBlock | undefined }) {
       ) : null}
 
       <div className="grid gap-5 md:grid-cols-2">
-        <List title="O que mudou" items={a.what_changed} />
+        {a.changes ? <Changes groups={a.changes} /> : <List title="O que mudou" items={a.what_changed} />}
         <List title="O que importa" items={a.what_matters} />
-        <List title="Oportunidades" items={a.opportunities} />
+        <List title="Hipóteses" items={a.hypotheses} />
+        {a.signal_cards ? <Signals cards={a.signal_cards} /> : null}
+        {a.opportunity_cards ? <Opportunities cards={a.opportunity_cards} /> : <List title="Oportunidades" items={a.opportunities} />}
         <List title="Testes" items={a.tests} />
         <List title="O que não mexer" items={a.do_not_touch} />
-        <List title="Dados pendentes" items={a.pending_data} />
+        {a.pending_cards ? <Pending items={a.pending_cards} /> : <List title="Dados pendentes" items={a.pending_data} />}
       </div>
-
-      {unverified.length ? (
-        <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
-          {`Números não encontrados no contexto foram removidos da análise: ${unverified.slice(0, 6).join(', ')}`}
-        </p>
-      ) : null}
     </section>
   )
 }

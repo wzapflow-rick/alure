@@ -6,6 +6,8 @@ import { getAIOverview } from '@/lib/ai/telemetry'
 import { listConfiguredModels } from '@/lib/ai/model-router'
 import { getProvider, hasOpenAIKey, PROVIDER_LABEL } from '@/lib/ai/openai-client'
 import { formatDateTime } from '@/lib/format'
+import { queryOne } from '@/lib/db'
+import type { AIValidation } from '@/lib/ai/schemas'
 
 const TIER_LABEL = { default: 'Modelo padrão', fast: 'Modelo rápido', deep: 'Modelo profundo' } as const
 
@@ -27,7 +29,14 @@ function Field({ label, children, wide }: { label: string; children: React.React
 }
 
 export async function AIPanel() {
-  const overview = await getAIOverview().catch(() => null)
+  const [overview, reading] = await Promise.all([
+    getAIOverview().catch(() => null),
+    queryOne<{ validation: AIValidation | null }>(
+      `SELECT content->'ai'->'validation' AS validation FROM daily_summaries ORDER BY summary_date DESC LIMIT 1`,
+    ).catch(() => null),
+  ])
+  const validation = reading?.validation ?? null
+  const diagnostics = validation?.diagnostics ?? []
   const provider = getProvider()
   const keyOk = hasOpenAIKey()
   const models = listConfiguredModels()
@@ -81,6 +90,32 @@ export async function AIPanel() {
                 ? 'Tabela ai_calls ainda não criada (rode db/004_ai_layer.sql)'
                 : 'Sem chamadas'}
           </span>
+        </Field>
+        <Field label="Validação da última leitura" wide>
+          {validation ? (
+            <div className="flex flex-col gap-2">
+              <span className="tabular">
+                {`${validation.removedNumbers ?? validation.unverifiedNumbers.length} número(s) removido(s) por validação · ${diagnostics.length} trecho(s) descartado(s)`}
+              </span>
+              {diagnostics.length ? (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground">Ver diagnóstico</summary>
+                  <ul className="mt-2 flex flex-col gap-2">
+                    {diagnostics.map((d, i) => (
+                      <li key={i} className="flex flex-col gap-0.5 border-l border-border pl-3 leading-relaxed">
+                        <span className="font-mono text-muted-foreground">
+                          {`${d.section}${d.number ? ` · número ${d.number}` : ''} · ${d.reason} · origem: ${d.origin}`}
+                        </span>
+                        <span>{d.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          ) : (
+            '—'
+          )}
         </Field>
         {last?.error ? (
           <Field label="Último erro" wide>
