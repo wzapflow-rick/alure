@@ -11,6 +11,7 @@ import { formatBRL, formatDate, formatDateTime, formatPct, todayISO } from '@/li
 import { getConnections, listAuditLogs, listFeeRules, listMarketplaces } from '@/lib/queries'
 import { getEngineSettings } from '@/lib/settings'
 import { AIPanel } from '@/components/settings/ai-panel'
+import { NotificationsPanel } from '@/components/settings/notifications-panel'
 
 export const metadata: Metadata = { title: 'Configurações' }
 
@@ -62,6 +63,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <PageHeader title="Configurações" description="Parâmetros do motor, taxas, integrações e auditoria." />
 
       <AIPanel />
+
+      <NotificationsPanel />
 
       <Panel title="Parâmetros do motor de decisão">
         <div className="px-5 py-5">

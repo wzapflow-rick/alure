@@ -34,6 +34,7 @@ import {
 
 import { prepareModel, recordUsage } from '@/lib/ai/orchestrator'
 import { describeAIError } from '@/lib/ai/user-error'
+import { refreshTodayIfStale, type FreshnessResult } from '@/lib/sync/freshen'
 
 export const maxDuration = 60
 
@@ -60,6 +61,10 @@ MEMÓRIA
 - Antes de registrar, confira a memória existente para não duplicar. Se a nova informação substitui uma antiga, registre a nova e diga qual ficou desatualizada.
 - Respeite a memória: não recomende algo que contradiga uma decisão registrada sem apontar o conflito.
 
+FRESCOR DOS DADOS
+- Ao citar números de hoje, informe o horário de kpis_hoje.lastSynced (fuso de São Paulo).
+- Se atualizacao_vendas_hoje indicar sincronização incompleta ou falha, diga isso antes dos números e não afirme que "não houve vendas".
+
 ESTILO
 - Português do Brasil, direto e curto. Diferencie fato (dado do banco) de hipótese (marque como hipótese).
 - Você não altera preços, anúncios nem testes: só explica e registra memória. Ações são feitas pelo usuário na interface.`
@@ -73,7 +78,7 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-async function buildDatabaseContext(user: SessionUser, conversationId: string) {
+async function buildDatabaseContext(user: SessionUser, conversationId: string, freshness: FreshnessResult[]) {
   const [connections, kpis, settings, memory, recs, alerts, conversations] = await Promise.all([
     safe(getConnections, []),
     safe(getTodayKpis, null),
@@ -94,6 +99,15 @@ async function buildDatabaseContext(user: SessionUser, conversationId: string) {
       status_ultima_sync: c.last_sync_status,
     })),
     kpis_hoje: kpis,
+    atualizacao_vendas_hoje: freshness.map((f) => ({
+      canal: f.code,
+      resultado:
+        f.status === 'fresh' || f.status === 'synced'
+          ? 'atualizado agora'
+          : f.status === 'running' || f.status === 'timeout'
+            ? 'sincronização em andamento; números de hoje podem estar incompletos'
+            : `falhou ao atualizar: ${f.detail ?? 'erro desconhecido'}`,
+    })),
     meta_diaria: settings?.dailyTarget ?? null,
     memoria_ativa: memory.map((m) => ({
       data: m.memory_date,
@@ -355,7 +369,8 @@ export async function POST(req: Request) {
     const history = (await getConversationMessages(user.id, conversationId, 40)) ?? []
     await saveMessage(conversationId, userMessage)
     messages = [...history.filter((m) => m.id !== userMessage.id), userMessage]
-    dbContext = await buildDatabaseContext(user, conversationId)
+    const freshness = await safe(refreshTodayIfStale, [])
+    dbContext = await buildDatabaseContext(user, conversationId, freshness)
   } catch (err) {
     console.error('[alure] assistant setup failed:', err)
     return new Response(describeAIError(err), { status: 503 })
