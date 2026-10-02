@@ -218,11 +218,32 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     // Listings first: orders and visits resolve to product_channels by external id.
     if (adapter.fetchListings) {
       const listings = await adapter.fetchListings()
+      const catalogColumn = await pool.query<{ ok: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
+      )
       await withTransaction(async (client) => {
         for (const l of listings) {
           if (await upsertListing(client, marketplaceId, l)) processed++
+          if (catalogColumn.rows[0]?.ok && l.catalogListing !== undefined) {
+            await client.query(
+              `UPDATE product_channels SET catalog_listing = $3, catalog_product_id = $4
+                WHERE marketplace_id = $1 AND external_id = $2`,
+              [marketplaceId, l.externalListingId, l.catalogListing, l.catalogProductId ?? null],
+            )
+          }
         }
       })
+    }
+
+    let competitionWarning: string | null = null
+    if (marketplaceCode === 'mercado_livre') {
+      try {
+        const { collectCatalogWinners } = await import('@/lib/integrations/meli-competition')
+        competitionWarning = (await collectCatalogWinners(marketplaceId)).skipped
+      } catch (error) {
+        competitionWarning = `Vencedor do catálogo não coletado: ${(error as Error).message}`
+      }
     }
 
     const orders = await adapter.fetchOrders(range)
@@ -255,6 +276,7 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
     } catch (error) {
       warning = `Pedidos salvos; visitas não sincronizadas: ${(error as Error).message}`
     }
+    if (competitionWarning) warning = warning ? `${warning} · ${competitionWarning}` : competitionWarning
 
     await pool.query(
       `UPDATE sync_jobs SET status='success', finished_at=now(), records_processed=$2, error=$3 WHERE id=$1`,

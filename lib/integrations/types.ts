@@ -45,6 +45,9 @@ export type NormalizedListing = {
   status: 'active' | 'paused' | 'inactive'
   /** Units available for sale; null when the marketplace does not report it. */
   availableQuantity?: number | null
+  /** Mercado Livre catalog listing (competes for the buy box); undefined when unknown. */
+  catalogListing?: boolean
+  catalogProductId?: string | null
 }
 
 export type NormalizedDailyMetric = {

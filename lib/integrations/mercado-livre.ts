@@ -146,6 +146,8 @@ type MeliItem = {
   available_quantity?: number | null
   seller_custom_field: string | null
   attributes?: { id: string; value_name: string | null }[]
+  catalog_listing?: boolean | null
+  catalog_product_id?: string | null
 }
 
 function itemSku(item: MeliItem) {
@@ -168,7 +170,7 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
   for (let i = 0; i < ids.length; i += MULTIGET) {
     const batch = ids.slice(i, i + MULTIGET).join(',')
     const res = await apiGet<{ code: number; body: MeliItem }[]>(
-      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes`,
+      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes,catalog_listing,catalog_product_id`,
       conn.accessToken,
     )
     for (const { code, body } of res) {
@@ -181,6 +183,8 @@ export async function fetchListings(): Promise<NormalizedListing[]> {
         price: Number(body.price),
         status: body.status === 'active' ? 'active' : body.status === 'paused' ? 'paused' : 'inactive',
         availableQuantity: typeof body.available_quantity === 'number' ? body.available_quantity : null,
+        catalogListing: Boolean(body.catalog_listing),
+        catalogProductId: body.catalog_product_id ?? null,
       })
     }
   }

@@ -324,3 +324,46 @@ export async function previewEngine(skus: string[]) {
 
   return { gerado_em: new Date().toISOString(), gravou_no_banco: false, produtos }
 }
+
+/**
+ * Records the catalog winner reported by price_to_win as an identified competitor (confidence EXACT).
+ * Only observes: never changes prices, creates tests or recommendations. price_to_win itself is kept
+ * in notes as a Mercado Livre signal, not as a target. Requires migration 009.
+ */
+export async function collectCatalogWinners(marketplaceId: number) {
+  const ready = await pool.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
+  )
+  if (!ready.rows[0]?.ok) return { checked: 0, recorded: 0, skipped: 'Rode o db/009 para gravar o vencedor do catálogo.' }
+
+  const conn = await connection()
+  const channels = await pool.query<{ id: string; external_id: string }>(
+    `SELECT id, external_id FROM product_channels
+      WHERE marketplace_id = $1 AND catalog_listing AND status = 'active' AND external_id IS NOT NULL`,
+    [marketplaceId],
+  )
+  const today = todayISO()
+  let recorded = 0
+  for (const ch of channels.rows) {
+    const call = await apiGetRaw(`/items/${ch.external_id}/price_to_win?siteId=MLB&version=v2`, conn.accessToken)
+    if (!ok(call)) continue
+    const body = call.body as Record<string, any>
+    const winnerId: string | null = body?.winner?.item_id ?? null
+    const winnerPrice = num(body?.winner?.price)
+    if (!winnerId || !winnerPrice || winnerId === ch.external_id) continue
+    const priceToWin = num(body?.price_to_win)
+    const notes =
+      `Concorrente identificado (vencedor do catálogo) · confiança EXATA` +
+      (priceToWin ? ` · preço para ganhar R$ ${priceToWin.toFixed(2)} (sinal do ML, não é meta)` : '')
+    await pool.query(
+      `INSERT INTO competitor_offers (product_channel_id, competitor_name, price, observed_on, source, url, notes)
+       VALUES ($1, $2, $3, $4::date, 'ml_price_to_win', $5, $6)
+       ON CONFLICT (product_channel_id, lower(competitor_name), observed_on, source) WHERE source <> 'manual'
+       DO UPDATE SET price = EXCLUDED.price, notes = EXCLUDED.notes`,
+      [ch.id, winnerId, winnerPrice, today, `https://produto.mercadolivre.com.br/${winnerId.replace(/^MLB/, 'MLB-')}`, notes],
+    )
+    recorded++
+  }
+  return { checked: channels.rows.length, recorded, skipped: null as string | null }
+}
