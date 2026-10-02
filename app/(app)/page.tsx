@@ -89,7 +89,9 @@ export default async function CommandPage() {
 
   const skuByProduct = new Map(productIndex.map((p) => [String(p.id), p.sku]))
   const priorityProducts = new Set(priorities.map((r) => r.product_id).filter(Boolean).map(String))
+  const mixAlerts = alerts.filter((a) => a.alert_type === 'mix_risk')
   const attention: AttentionLine[] = alerts
+    .filter((a) => a.alert_type !== 'mix_risk')
     .filter((a) => a.severity === 'critical' || a.severity === 'attention')
     .filter((a) => !a.product_id || !priorityProducts.has(String(a.product_id)))
     .map((a) => ({
@@ -121,6 +123,23 @@ export default async function CommandPage() {
       <div className="rule" aria-hidden />
 
       <DayReading brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
+
+      {mixAlerts.length ? (
+        <section aria-label="Risco de mix" className="flex flex-col gap-3 border-y border-border py-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-1">
+            <p className="eyebrow">Risco de mix</p>
+            {mixAlerts.map((a) => (
+              <p key={a.id} className="text-sm leading-relaxed text-pretty">{a.message}</p>
+            ))}
+          </div>
+          <Link
+            href="/alertas"
+            className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-secondary"
+          >
+            Investigar mix
+          </Link>
+        </section>
+      ) : null}
 
       <section aria-label="Prioridades" className="flex flex-col gap-2">
         <header className="flex items-baseline justify-between gap-2">

@@ -81,6 +81,9 @@ export const RULE_META: Record<string, { category: Category; metric: string; rev
   R12_PACE_DROP: { category: 'commercial', metric: 'Unidades/dia, visitas e conversão nos próximos dias', reviewDays: 3 },
   R13_DIFFERENTIATION: { category: 'commercial', metric: 'Conversão e pedidos', reviewDays: 7 },
   R14_SYSTEMIC_MOTORS: { category: 'commercial', metric: 'Ritmo dos motores de giro no marketplace', reviewDays: 3 },
+  R15_MIX_RISK: { category: 'commercial', metric: 'Peso dos motores de faturamento no faturamento diário', reviewDays: 3 },
+  R16_CONCENTRATION: { category: 'info', metric: 'Participação do produto no faturamento recente', reviewDays: 3 },
+  R17_REVENUE_MOTOR_ABSENT: { category: 'commercial', metric: 'Dias sem venda frente ao intervalo normal', reviewDays: 3 },
 }
 
 /**
