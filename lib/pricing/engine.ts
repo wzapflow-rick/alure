@@ -19,6 +19,8 @@ export type PricingInput = {
   category: string | null
   rules: FeeRule[]
   targetMarginPct: number
+  /** Lowest acceptable margin; defines the economic floor price. */
+  minMarginPct?: number
 }
 
 export type PricingResult =
@@ -38,6 +40,9 @@ export type PricingResult =
       breakEvenPrice: number | null
       targetMarginPrice: number | null
       targetMarginPct: number
+      /** Price that keeps the configured minimum margin — below it, competing on price is not viable. */
+      minMarginPrice: number | null
+      minMarginPct: number | null
     }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -125,6 +130,8 @@ export function calculatePricing(input: PricingInput): PricingResult {
     breakEvenPrice: solvePrice(input, input.cost, 0),
     targetMarginPrice: solvePrice(input, input.cost, input.targetMarginPct),
     targetMarginPct: input.targetMarginPct,
+    minMarginPrice: input.minMarginPct !== undefined ? solvePrice(input, input.cost, input.minMarginPct) : null,
+    minMarginPct: input.minMarginPct ?? null,
   }
 }
 

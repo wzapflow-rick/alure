@@ -8,6 +8,8 @@ import { getEngineSettings, type EngineSettings } from '@/lib/settings'
 import type { SessionUser } from '@/lib/session'
 import {
   applyExperimentGuard,
+  applyMotorCascade,
+  type CompetitorOffer,
   consolidateLostPace,
   baselineFor,
   CATEGORY_LABEL,
@@ -64,14 +66,21 @@ type ChannelRow = {
   revenue_28: string
   sale_days_14: string
   sale_days_28: string
+  units_2: string
+  units_d2: string
+  units_prior7: string
+  visits_2: string | null
+  visits_prior7: string | null
 }
 
 type CompetitionRow = {
   product_channel_id: string
-  offers: string
   competitor_name: string
   price: string
   free_shipping: boolean | null
+  is_full: boolean | null
+  sold_quantity: number | null
+  source: string
   observed_on: string
   previous_price: string | null
 }
@@ -87,43 +96,48 @@ export async function hasAlertHistory() {
 
 /** Competitor observations come from migration 007; before it runs, competition is unknown. */
 async function loadCompetition(today: string, freshDays: number): Promise<Map<number, Competition>> {
-  const exists = await query<{ ok: boolean }>(`SELECT to_regclass('public.competitor_offers') IS NOT NULL AS ok`)
+  const exists = await query<{ ok: boolean; extra: boolean }>(
+    `SELECT to_regclass('public.competitor_offers') IS NOT NULL AS ok,
+            EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'competitor_offers' AND column_name = 'is_full') AS extra`,
+  )
   if (!exists[0]?.ok) return new Map()
+  // Migration 008 adds Full / seller sales; before it, those signals are unknown.
+  const extra = exists[0].extra ? 'is_full, sold_quantity' : 'NULL::boolean AS is_full, NULL::int AS sold_quantity'
   const rows = await query<CompetitionRow>(
-    `WITH latest AS (
-       SELECT DISTINCT ON (product_channel_id, lower(competitor_name))
-              product_channel_id, competitor_name, price, free_shipping, observed_on,
-              LEAD(price) OVER (PARTITION BY product_channel_id, lower(competitor_name)
-                                ORDER BY observed_on DESC, id DESC) AS previous_price
+    `WITH ranked AS (
+       SELECT product_channel_id, competitor_name, price, free_shipping, ${extra}, source, observed_on,
+              ROW_NUMBER() OVER w AS rn,
+              LEAD(price) OVER w AS previous_price
          FROM competitor_offers
         WHERE observed_on <= $1::date
-        ORDER BY product_channel_id, lower(competitor_name), observed_on DESC, id DESC
-     ), fresh AS (
-       SELECT * FROM latest WHERE observed_on > $1::date - $2::int
+       WINDOW w AS (PARTITION BY product_channel_id, lower(competitor_name) ORDER BY observed_on DESC, id DESC)
      )
-     SELECT DISTINCT ON (product_channel_id)
-            product_channel_id,
-            COUNT(*) OVER (PARTITION BY product_channel_id) AS offers,
-            competitor_name, price, free_shipping,
+     SELECT product_channel_id, competitor_name, price, free_shipping, is_full, sold_quantity, source,
             to_char(observed_on,'YYYY-MM-DD') AS observed_on, previous_price
-       FROM fresh
+       FROM ranked
+      WHERE rn = 1 AND observed_on > $1::date - $2::int
       ORDER BY product_channel_id, price ASC`,
     [today, freshDays],
   )
+  const byChannel = new Map<number, CompetitorOffer[]>()
+  for (const r of rows) {
+    const id = Number(r.product_channel_id)
+    const list = byChannel.get(id) ?? []
+    list.push({
+      name: r.competitor_name,
+      price: Number(r.price),
+      freeShipping: r.free_shipping,
+      isFull: r.is_full,
+      soldQuantity: r.sold_quantity === null ? null : Number(r.sold_quantity),
+      source: r.source,
+      observedOn: r.observed_on,
+      previousPrice: toNumber(r.previous_price),
+    })
+    byChannel.set(id, list)
+  }
   return new Map(
-    rows.map((r) => [
-      Number(r.product_channel_id),
-      {
-        offers: Number(r.offers),
-        cheapest: {
-          name: r.competitor_name,
-          price: Number(r.price),
-          freeShipping: r.free_shipping,
-          observedOn: r.observed_on,
-          previousPrice: toNumber(r.previous_price),
-        },
-      },
-    ]),
+    [...byChannel].map(([id, all]) => [id, { offers: all.length, cheapest: all[0], all }]),
   )
 }
 
@@ -143,7 +157,13 @@ async function hasStockColumn() {
   return Boolean(rows[0]?.ok)
 }
 
-export async function loadChannelStats(today: string, windowDays: number, targetMarginPct: number, competitorFreshDays = 14) {
+export async function loadChannelStats(
+  today: string,
+  windowDays: number,
+  targetMarginPct: number,
+  competitorFreshDays = 14,
+  minMarginPct?: number,
+) {
   const stockSelect = (await hasStockColumn()) ? 'pc.available_quantity' : 'NULL::int AS available_quantity'
   const rows = await query<ChannelRow>(
     `SELECT pc.id AS product_channel_id, pc.product_id, pc.marketplace_id, m.name AS marketplace_name,
@@ -160,8 +180,9 @@ export async function loadChannelStats(today: string, windowDays: number, target
             COALESCE(s.units_7,0) AS units_7, COALESCE(s.units_14,0) AS units_14, COALESCE(s.units_28,0) AS units_28,
             COALESCE(s.revenue_14,0) AS revenue_14, COALESCE(s.revenue_28,0) AS revenue_28,
             COALESCE(s.sale_days_14,0) AS sale_days_14, COALESCE(s.sale_days_28,0) AS sale_days_28,
+            COALESCE(s.units_2,0) AS units_2, COALESCE(s.units_d2,0) AS units_d2, COALESCE(s.units_prior7,0) AS units_prior7,
             to_char(t.first_date,'YYYY-MM-DD') AS first_traffic_date,
-            t.visits_cur, t.visits_prev, t.visits_base,
+            t.visits_cur, t.visits_prev, t.visits_base, t.visits_2, t.visits_prior7,
             to_char(ph.changed_at AT TIME ZONE 'America/Sao_Paulo','YYYY-MM-DD') AS price_change_date,
             ph.previous_price AS price_change_previous, ph.price AS price_change_price
        FROM product_channels pc
@@ -189,7 +210,10 @@ export async function loadChannelStats(today: string, windowDays: number, target
                SUM(revenue) FILTER (WHERE metric_date > $1::date - 14)                                             AS revenue_14,
                SUM(revenue) FILTER (WHERE metric_date > $1::date - 28)                                             AS revenue_28,
                COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 14)                                  AS sale_days_14,
-               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 28)                                  AS sale_days_28
+               COUNT(*) FILTER (WHERE orders > 0 AND metric_date > $1::date - 28)                                  AS sale_days_28,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date > $1::date - 2)                    AS units_2,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date = $1::date - 2)                    AS units_d2,
+               SUM(COALESCE(NULLIF(units,0), orders)) FILTER (WHERE metric_date <= $1::date - 2 AND metric_date > $1::date - 9) AS units_prior7
           FROM sales_metrics
          WHERE product_channel_id = pc.id AND metric_date <= $1::date
        ) s ON true
@@ -204,7 +228,9 @@ export async function loadChannelStats(today: string, windowDays: number, target
         SELECT MIN(metric_date) AS first_date,
                SUM(visits) FILTER (WHERE metric_date >  $1::date - win.w)                                      AS visits_cur,
                SUM(visits) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - 2*win.w) AS visits_prev,
-               SUM(visits) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS visits_base
+               SUM(visits) FILTER (WHERE metric_date <= $1::date - win.w AND metric_date > $1::date - win.w - win.base_len) AS visits_base,
+               SUM(visits) FILTER (WHERE metric_date > $1::date - 2)                                           AS visits_2,
+               SUM(visits) FILTER (WHERE metric_date <= $1::date - 2 AND metric_date > $1::date - 9)           AS visits_prior7
           FROM traffic_metrics
          WHERE product_channel_id = pc.id AND metric_date <= $1::date
         HAVING COUNT(*) > 0
@@ -270,7 +296,13 @@ export async function loadChannelStats(today: string, windowDays: number, target
         },
         feeRules,
         targetMarginPct,
+        minMarginPct,
       ),
+      units2: Number(r.units_2),
+      unitsD2: Number(r.units_d2),
+      unitsPrior7: Number(r.units_prior7),
+      visits2: hasTraffic ? Number(r.visits_2 ?? 0) : null,
+      visitsPrior7: hasTraffic ? Number(r.visits_prior7 ?? 0) : null,
       units7: Number(r.units_7),
       units14: Number(r.units_14),
       units28: Number(r.units_28),
@@ -595,12 +627,16 @@ export async function runEngine(user: SessionUser | null, analysisRunId: number 
   const today = todayISO()
   const settings = await getEngineSettings()
   const [channels, experiments, memories] = await Promise.all([
-    loadChannelStats(today, settings.windowDays, settings.targetMarginPct, settings.competitorFreshDays),
+    loadChannelStats(today, settings.windowDays, settings.targetMarginPct, settings.competitorFreshDays, settings.minMarginPct),
     loadExperiments(today),
     loadMemories(),
   ])
 
-  const raw = channels.flatMap((c) => evaluateChannel(c, settings, today))
+  const raw = applyMotorCascade(
+    channels.flatMap((c) => evaluateChannel(c, settings, today)),
+    channels,
+    settings,
+  )
   const guarded = applyExperimentGuard(raw, experiments, today)
   const remembered = applyMemoryGuard(guarded.signals, memories)
   const preliminary: Signal[] = consolidateLostPace(remembered.signals)
