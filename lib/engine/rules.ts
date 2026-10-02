@@ -86,6 +86,9 @@ export const RULE_META: Record<string, { category: Category; metric: string; rev
  */
 export const COMMAND_MIN_SCORE = 70
 
+/** Off until real competitor observations are collected automatically; no competitive recommendation is generated. */
+export const COMPETITIVE_INTELLIGENCE_ACTIVE = false
+
 export type AlertLevel = 'high_impact' | 'attention' | 'information'
 export function alertLevel(severity: string): AlertLevel {
   if (severity === 'critical') return 'high_impact'
@@ -659,8 +662,8 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
       data: commonData,
       recommendation:
         coverageDays !== null
-          ? `Não interferir. Estoque cobre ~${fmtDays(Math.floor(coverageDays))} no ritmo atual${coverageDays < 14 ? ' — programar reposição' : ''}.`
-          : 'Não interferir. Garantir estoque para sustentar o ritmo.',
+          ? `Não interferir. Cobertura matemática de ${fmtDays(Math.round(coverageDays * 10) / 10)} no ritmo atual${coverageDays < 14 ? ' — verificar disponibilidade para evitar interrupção comercial' : ''}.`
+          : 'Não interferir. Verificar disponibilidade para sustentar o ritmo.',
       reason: 'Mudar preço ou anúncio durante a aceleração pode quebrar o que está funcionando.',
       objective: 'Sustentar o crescimento sem perder margem.',
       suggestsChange: false,
@@ -734,13 +737,15 @@ export function evaluateChannel(c: ChannelStats, s: EngineSettings, today: strin
   const stockSignal = evaluateStock(c, s, ids, title, commonData)
   if (stockSignal) signals.push(stockSignal)
 
-  // I — inteligência competitiva: só existe com observação recente de concorrente
-  const competitiveSignal = evaluateCompetition(c, s, profile, ids, title, commonData, {
-    convVsBase,
-    ordersVsBase,
-    baseOrders: base.orders,
-  })
-  if (competitiveSignal) signals.push(competitiveSignal)
+  // I — inteligência competitiva: desligada até existir coleta real de concorrência
+  if (COMPETITIVE_INTELLIGENCE_ACTIVE) {
+    const competitiveSignal = evaluateCompetition(c, s, profile, ids, title, commonData, {
+      convVsBase,
+      ordersVsBase,
+      baseOrders: base.orders,
+    })
+    if (competitiveSignal) signals.push(competitiveSignal)
+  }
 
   // Alertas só para o que move a meta. O sinal continua nas prioridades; só não interrompe.
   // Ruptura e concorrência medem a própria relevância (velocidade e faturamento de períodos longos).
@@ -806,10 +811,14 @@ function stockVelocity(c: ChannelStats): Velocity | null {
 function stockRelevance(c: ChannelStats, v: Velocity, s: EngineSettings) {
   const dailyRevenue = v.revenue / v.periodDays
   const share = s.dailyTarget > 0 ? dailyRevenue / s.dailyTarget : 0
+  const frequency = v.saleDays / v.periodDays
   const tier: 'high' | 'medium' | 'low' =
-    share >= 0.03 || v.perDay >= 5 || (c.classification === 'motor_de_giro' && v.perDay >= 1)
+    share >= 0.03 ||
+    v.perDay >= 5 ||
+    (c.classification === 'motor_de_giro' && (v.perDay >= 1 || frequency >= 0.5)) ||
+    (c.classification === 'alto_ticket' && share >= 0.02)
       ? 'high'
-      : share >= ALERT_MIN_GOAL_SHARE || v.perDay >= ALERT_MIN_UNITS_PER_DAY
+      : share >= ALERT_MIN_GOAL_SHARE || v.perDay >= ALERT_MIN_UNITS_PER_DAY || frequency >= 0.5
         ? 'medium'
         : 'low'
   return { tier, dailyRevenue, share }
@@ -851,76 +860,98 @@ function evaluateStock(c: ChannelStats, s: EngineSettings, ids: SignalIds, title
 
   const rel = stockRelevance(c, v, s)
   if (rel.tier === 'low') return null
-  const coverage = c.stock / v.perDay
+
+  // A velocidade exibida é a mesma usada na conta: estoque ÷ velocidade mostrada = cobertura mostrada.
+  const perDay = round2(v.perDay)
+  if (perDay <= 0) return null
+  const coverage = c.stock / perDay
   if (c.stock > 0 && coverage > s.stockRiskDays) return null
 
   const imminent = c.stock === 0 || coverage <= s.stockCriticalDays
   const severity: Severity = imminent ? (rel.tier === 'high' ? 'critical' : 'attention') : rel.tier === 'high' ? 'attention' : 'info'
   const level = alertLevel(severity)
-  const daysAtRisk = Math.max(1, s.stockRiskDays - Math.floor(coverage))
+  // Só produto de alta relevância comercial disputa o topo do Comando; os demais ficam no alerta e em Prioridades.
+  const elevated = rel.tier === 'high' && severity !== 'info'
+  const daysAtRisk = Math.max(1, s.stockRiskDays - coverage)
   const atStake = rel.dailyRevenue * daysAtRisk
-  const coverageText = fmtDays(Math.max(0, Math.round(coverage * 10) / 10))
+  const stockText = `${formatInt(c.stock)} un`
+  const velocityText = `${fmtNum(perDay, 2)} un/dia`
+  const coverageText = fmtDays(round1(coverage))
+  const coverageMath = c.stock === 0 ? '0 dias (sem estoque)' : `${stockText} ÷ ${velocityText} = ${coverageText}`
   const sharePct = formatPct(rel.share * 100)
+  const periodText = `últimos ${v.periodDays} dias`
+  const baseRateText = `${formatInt(v.units)} un ÷ ${v.periodDays} dias = ${fmtNum(v.baseRate, 2)} un/dia`
+  const velocityMath =
+    v.trend === 'stable'
+      ? baseRateText
+      : `média entre o período (${fmtNum(v.baseRate, 2)} un/dia) e os últimos 7 dias (${formatInt(c.units7)} un ÷ 7 = ${fmtNum(v.rate7, 2)} un/dia) = ${velocityText}`
   const trendText =
     v.trend === 'up'
-      ? `Últimos 7 dias (${v.rate7.toFixed(1)} un/dia) acima da média do período (${v.baseRate.toFixed(1)} un/dia): velocidade ponderada para cima.`
+      ? `Últimos 7 dias acima de 130% da média do período: velocidade ponderada para cima (${baseRateText} no período).`
       : v.trend === 'down'
-        ? `Últimos 7 dias (${v.rate7.toFixed(1)} un/dia) abaixo da média do período (${v.baseRate.toFixed(1)} un/dia): velocidade ponderada para baixo.`
+        ? `Últimos 7 dias abaixo de 60% da média do período: velocidade ponderada para baixo (${baseRateText} no período).`
         : null
+  const classLabel = c.classification && c.classification !== 'sem_classificacao' ? CLASSIFICATION_LABEL[c.classification] : null
+  const frequencyPct = formatPct((v.saleDays / v.periodDays) * 100)
+  const relevanceText = `${RELEVANCE_LABEL[rel.tier]}: ${formatBRL(v.revenue)} e ${formatInt(v.units)} un em ${v.periodDays} dias (${formatBRL(rel.dailyRevenue)}/dia, ${sharePct} da meta diária); venda em ${formatInt(v.saleDays)} de ${v.periodDays} dias (${frequencyPct}).`
+  const whyText =
+    c.stock === 0
+      ? `Estoque zerado em produto com venda recorrente e relevância ${RELEVANCE_LABEL[rel.tier].toLowerCase()}.`
+      : `A cobertura (${coverageText}) está abaixo do limite configurado de ${fmtDays(s.stockRiskDays)}${imminent ? ` e dentro do limite crítico de ${fmtDays(s.stockCriticalDays)}` : ''}, em produto de relevância ${RELEVANCE_LABEL[rel.tier].toLowerCase()}.`
+  const action =
+    c.stock === 0
+      ? 'Verificar com o responsável pelo estoque a disponibilidade do produto para evitar interrupção comercial.'
+      : 'Verificar disponibilidade para evitar interrupção comercial.'
 
   const issue =
     c.stock === 0
-      ? `Ruptura: sem estoque com venda média de ${v.perDay.toFixed(1)} un/dia.`
-      : imminent
-        ? `Ruptura iminente: estoque cobre ~${coverageText}.`
-        : `Estoque cobre ~${coverageText}, dentro da zona de risco (≤ ${fmtDays(s.stockRiskDays)}).`
+      ? `Risco comercial de ruptura: sem estoque, com venda média de ${velocityText}.`
+      : `Risco comercial de ruptura: cobertura de ${coverageText} (${coverageMath}).`
 
   return {
     ...ids,
     fingerprint: `R10:${c.productChannelId}`,
     ruleCode: 'R10_STOCKOUT_RISK',
-    kind: severity === 'info' ? 'no_action' : 'priority',
+    kind: elevated ? 'priority' : 'no_action',
     severity,
-    actionType: severity === 'info' ? 'information' : 'recommendation',
+    actionType: elevated ? 'recommendation' : 'information',
     confidence: v.saleDays >= 7 ? 'high' : 'medium',
-    score: score(severity, rel.dailyRevenue, 1, s.dailyTarget) + (c.stock === 0 ? 10 : imminent ? 5 : 0),
+    score: elevated
+      ? score(severity, rel.dailyRevenue, 1, s.dailyTarget) + (c.stock === 0 ? 10 : imminent ? 5 : 0)
+      : Math.min(COMMAND_MIN_SCORE - 1, score(severity, rel.dailyRevenue, 1, s.dailyTarget)),
     title,
     issue,
     evidence: [
-      { label: 'FATO', text: `Estoque atual: ${formatInt(c.stock)} un.` },
-      { label: 'FATO', text: `Velocidade: ${v.perDay.toFixed(1)} un/dia (últimos ${v.periodDays} dias, ${formatInt(v.saleDays)} dias com venda).` },
+      { label: 'FATO', text: `Estoque atual: ${stockText}.` },
+      { label: 'FATO', text: `Velocidade média: ${velocityText} (${periodText}; ${velocityMath}).` },
       ...(trendText ? [{ label: 'FATO' as const, text: trendText }] : []),
-      { label: 'FATO', text: c.stock === 0 ? 'Cobertura: zero.' : `Cobertura estimada: ${coverage.toFixed(1)} dias.` },
-      {
-        label: 'INTERPRETAÇÃO',
-        text:
-          rel.tier === 'high'
-            ? `Produto relevante: ${formatBRL(rel.dailyRevenue)}/dia (${sharePct} da meta diária). Cerca de ${formatBRL(atStake)} em risco nos próximos ${fmtDays(s.stockRiskDays)}.`
-            : `Relevância moderada: ${formatBRL(rel.dailyRevenue)}/dia (${sharePct} da meta). O risco existe, mas o impacto na meta é limitado.`,
-      },
+      { label: 'FATO', text: `Cobertura matemática: ${coverageMath}. Margem de segurança: nenhuma aplicada — cobertura considerada = cobertura matemática.` },
+      ...(classLabel ? [{ label: 'FATO' as const, text: `Classificação: ${classLabel}.` }] : []),
+      { label: 'FATO', text: `Relevância comercial — ${relevanceText}` },
+      { label: 'INTERPRETAÇÃO', text: `Por que apareceu: ${whyText}` },
+      ...(rel.tier === 'high'
+        ? [{ label: 'INTERPRETAÇÃO' as const, text: `Cerca de ${formatBRL(atStake)} de faturamento exposto se a venda for interrompida antes de ${fmtDays(s.stockRiskDays)}.` }]
+        : [{ label: 'INTERPRETAÇÃO' as const, text: 'Relevância moderada: o risco existe, mas não é elevado a prioridade do Comando.' }]),
       ...(c.stock > 0
-        ? [{ label: 'HIPÓTESE' as const, text: `Se o ritmo se mantiver, a ruptura deve ocorrer em ~${coverageText}.` }]
+        ? [{ label: 'HIPÓTESE' as const, text: `Se o ritmo se mantiver, o estoque se esgota em cerca de ${coverageText}.` }]
         : []),
     ],
     data: [
       ...commonData,
-      { label: 'Estoque atual', value: `${formatInt(c.stock)} un` },
-      { label: 'Velocidade de venda', value: `${v.perDay.toFixed(1)} un/dia (${v.periodDays}d)` },
-      { label: 'Cobertura', value: c.stock === 0 ? '0 dias' : `${coverage.toFixed(1)} dias` },
-      { label: 'Zona de risco · iminente', value: `≤ ${fmtDays(s.stockRiskDays)} · ≤ ${fmtDays(s.stockCriticalDays)}` },
-      { label: 'Impacto estimado', value: `${formatBRL(rel.dailyRevenue)}/dia · ${sharePct} da meta diária` },
+      { label: 'Estoque atual', value: stockText },
+      { label: 'Velocidade média', value: velocityText },
+      { label: 'Período analisado', value: periodText },
+      { label: 'Cobertura matemática', value: coverageMath },
+      { label: 'Margem de segurança', value: 'nenhuma' },
+      { label: 'Cobertura considerada', value: c.stock === 0 ? '0 dias' : coverageText },
+      { label: 'Limite de risco · crítico', value: `${fmtDays(s.stockRiskDays)} · ${fmtDays(s.stockCriticalDays)}` },
+      ...(classLabel ? [{ label: 'Classificação', value: classLabel }] : []),
+      { label: 'Relevância comercial', value: `${RELEVANCE_LABEL[rel.tier]} · ${formatBRL(rel.dailyRevenue)}/dia · ${sharePct} da meta` },
       { label: 'Nível do alerta', value: ALERT_LEVEL_LABEL[level] },
     ],
-    recommendation:
-      c.stock === 0
-        ? 'Repor estoque imediatamente; até a reposição, reduzir investimento em exposição.'
-        : imminent
-          ? 'Priorizar a reposição agora.'
-          : severity === 'info'
-            ? 'Acompanhar e programar reposição se o ritmo se mantiver.'
-            : 'Programar reposição antes da ruptura.',
-    reason: 'Ruptura interrompe a venda e derruba a relevância do anúncio; repor é mais barato que recuperar posição.',
-    objective: `Manter cobertura acima de ${fmtDays(s.stockRiskDays)}.`,
+    recommendation: action,
+    reason: `Por que apareceu: ${whyText}`,
+    objective: 'Evitar interrupção comercial do anúncio.',
     suggestsChange: false,
     alert:
       severity === 'info'
@@ -930,11 +961,35 @@ function evaluateStock(c: ChannelStats, s: EngineSettings, ids: SignalIds, title
             severity,
             message:
               c.stock === 0
-                ? `${title}: ruptura — sem estoque (${v.perDay.toFixed(1)} un/dia).`
-                : `${title}: estoque cobre ~${coverageText} (${formatInt(c.stock)} un, ${v.perDay.toFixed(1)} un/dia).`,
+                ? `${title}: risco comercial de ruptura — sem estoque (velocidade ${velocityText}, ${periodText}).`
+                : `${title}: risco comercial de ruptura — ${coverageMath} (${periodText}).`,
           },
-    trace: [`Ruptura · nível ${ALERT_LEVEL_LABEL[level]}: cobertura ${coverage.toFixed(1)}d, relevância ${rel.tier}, velocidade ${v.trend}.`],
+    trace: [
+      `Ruptura · nível ${ALERT_LEVEL_LABEL[level]}: ${coverageMath}, relevância ${rel.tier}, velocidade ${v.trend}${elevated ? '' : ' — não elevado a prioridade'}.`,
+    ],
   }
+}
+
+const CLASSIFICATION_LABEL: Record<Classification, string> = {
+  motor_de_giro: 'Motor de Giro',
+  produto_de_margem: 'Produto de Margem',
+  alto_ticket: 'Alto Ticket',
+  em_teste: 'Em Teste',
+  sazonal: 'Sazonal',
+  observacao: 'Observação',
+  sem_classificacao: 'Sem classificação',
+}
+
+const RELEVANCE_LABEL = { high: 'Alta', medium: 'Moderada', low: 'Baixa' } as const
+
+function round1(n: number) {
+  return Math.round(n * 10) / 10
+}
+function round2(n: number) {
+  return Math.round(n * 100) / 100
+}
+function fmtNum(n: number, digits: number) {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
 type CompetitivePerf = { convVsBase: number | null; ordersVsBase: number | null; baseOrders: number | null }

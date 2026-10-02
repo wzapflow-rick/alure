@@ -18,6 +18,7 @@ import {
   type ActiveExperiment,
   type StrategicMemory,
   type ChannelStats,
+  COMPETITIVE_INTELLIGENCE_ACTIVE,
   type Classification,
   type Competition,
   type Signal,
@@ -218,7 +219,7 @@ export async function loadChannelStats(today: string, windowDays: number, target
   )
 
   const feeRules = await getActiveFeeRules(today)
-  const competition = await loadCompetition(today, competitorFreshDays)
+  const competition = COMPETITIVE_INTELLIGENCE_ACTIVE ? await loadCompetition(today, competitorFreshDays) : new Map<number, Competition>()
 
   return rows.map<ChannelStats & { category: string | null }>((r) => {
     const marketplaceId = Number(r.marketplace_id)
