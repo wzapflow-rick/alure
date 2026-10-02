@@ -71,22 +71,17 @@ export function ProductQuickSearch({ products }: { products: QuickProduct[] }) {
   const missingCost = products.filter((p) => !p.average_cost).length
 
   return (
-    <section aria-label="Buscar produto" className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-5 py-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-medium">Buscar produto</h2>
-          <p className="text-xs text-muted-foreground">
-            {missingCost
-              ? `${missingCost} de ${products.length} produtos ainda sem custo cadastrado.`
-              : 'Todos os produtos já têm custo cadastrado.'}
-          </p>
-        </div>
-        <SearchInput value={term} onChange={setTerm} placeholder="Digite o SKU, ex.: 4906.303" className="md:w-80" />
-      </div>
+    <section aria-label="Buscar produto" className="relative flex w-full flex-col gap-1.5">
+      <SearchInput value={term} onChange={setTerm} placeholder="Buscar SKU, ex.: 4906.303" className="w-full" />
+      {missingCost ? (
+        <Link href="/produtos?status=no_cost" className="text-xs text-muted-foreground transition-colors hover:text-attention md:text-right">
+          {missingCost} de {products.length} produtos sem custo
+        </Link>
+      ) : null}
 
       {deferred.trim() ? (
         results.length ? (
-          <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+          <ul className="absolute inset-x-0 top-10 z-30 animate-fade divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface shadow-2xl shadow-background/80">
             {results.slice(0, MAX_RESULTS).map((p) => (
               <li key={p.id}>
                 <Link
@@ -116,7 +111,9 @@ export function ProductQuickSearch({ products }: { products: QuickProduct[] }) {
             ) : null}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">Nenhum produto com esse SKU ou nome.</p>
+          <p className="absolute inset-x-0 top-10 z-30 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-muted-foreground">
+            Nenhum produto com esse SKU ou nome.
+          </p>
         )
       ) : null}
     </section>

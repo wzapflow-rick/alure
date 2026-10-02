@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Badge, CLASSIFICATION_LABEL, EXPERIMENT_STATUS_LABEL, experimentTone } from '@/components/ui/badges'
-import { EmptyState, PageHeader, Panel, buttonVariants } from '@/components/ui/primitives'
+import { Disclosure, EmptyState, Panel, Section, buttonVariants } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
 import { ChannelForm, CostLotForm, ProductForm } from '@/components/products/product-forms'
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
@@ -29,6 +29,15 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: p?.name ?? 'Produto' }
 }
 
+function Fact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 md:border-l md:border-border md:pl-6 md:first:border-l-0 md:first:pl-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`truncate text-2xl font-semibold tracking-tight tabular ${tone ?? ''}`}>{value}</span>
+    </div>
+  )
+}
+
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const num = Number(id)
@@ -52,96 +61,132 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const usedMarketplaces = new Set(channels.map((c) => c.marketplace_id))
   const freeMarketplaces = marketplaces.filter((m) => !usedMarketplaces.has(m.id))
 
+  const priced = channels.map((c) => ({
+    channel: c,
+    pricing: priceChannel(
+      {
+        marketplaceId: Number(c.marketplace_id),
+        price: Number(c.current_price),
+        adsCostPct: Number(c.ads_cost_pct),
+        sellerDiscount: Number(c.seller_discount),
+        category: product.category,
+        cost,
+      },
+      rules,
+      settings.targetMarginPct,
+      settings.minMarginPct,
+    ),
+  }))
+
+  const marginTone = (pct: number) =>
+    pct < settings.minMarginPct ? 'text-critical' : pct < settings.targetMarginPct ? 'text-attention' : 'text-positive'
+
+  const main = priced[0]
+  const mainMargin = main?.pricing.status === 'ok' ? main.pricing : null
+
   return (
     <>
-      <div className="flex flex-col gap-2">
-        <Link href="/produtos" className="text-xs text-muted-foreground hover:text-foreground">← Produtos</Link>
-        <PageHeader
-          title={product.name}
-          description={`${product.sku} · ${product.brand}${product.category ? ` · ${product.category}` : ''}`}
-          action={
+      <header className="flex flex-col gap-8">
+        <div className="flex flex-col gap-3">
+          <Link href="/produtos" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
+            ← Produtos
+          </Link>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="eyebrow">
+                <span className="font-mono normal-case tracking-normal">{product.sku}</span> · {product.brand}
+                {product.category ? ` · ${product.category}` : ''}
+              </p>
+              <h1 className="text-3xl font-semibold tracking-tight text-balance">{product.name}</h1>
+            </div>
             <div className="flex items-center gap-2">
               <Badge>{CLASSIFICATION_LABEL[product.classification]}</Badge>
               {!product.active ? <Badge tone="attention">Inativo</Badge> : null}
             </div>
-          }
-        />
-      </div>
+          </div>
+        </div>
 
-      <section aria-label="Margem por canal" className="grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-2 xl:grid-cols-3">
-        {channels.length === 0 ? (
-          <div className="bg-surface md:col-span-3">
-            <EmptyState title="Nenhum canal cadastrado." description="Adicione um canal abaixo para calcular margem." />
+        <div className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-border py-6 md:grid-cols-4 md:gap-0">
+          <Fact label={main ? `Preço · ${main.channel.marketplace_name}` : 'Preço'} value={main ? formatBRL(main.channel.current_price) : '—'} />
+          <Fact label="Custo médio" value={cost !== null ? formatBRL(cost) : 'Sem custo'} tone={cost === null ? 'text-attention' : undefined} />
+          <Fact
+            label="Margem de contribuição"
+            value={mainMargin ? formatPct(mainMargin.marginPct) : '—'}
+            tone={mainMargin ? marginTone(mainMargin.marginPct) : undefined}
+          />
+          <Fact label="Ações abertas" value={String(recs.length)} tone={recs.length ? 'text-primary' : undefined} />
+        </div>
+      </header>
+
+      <Section title="O que fazer" id="acoes" className="scroll-mt-6">
+        {recs.length ? (
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+            {recs.map((r) => (
+              <RecommendationCard key={r.id} rec={r} />
+            ))}
           </div>
         ) : (
-          channels.map((c) => {
-            const r = priceChannel(
-              {
-                marketplaceId: Number(c.marketplace_id),
-                price: Number(c.current_price),
-                adsCostPct: Number(c.ads_cost_pct),
-                sellerDiscount: Number(c.seller_discount),
-                category: product.category,
-                cost,
-              },
-              rules,
-              settings.targetMarginPct,
-            )
-            return (
-              <div key={c.id} className="flex flex-col gap-4 bg-surface px-5 py-5">
+          <p className="text-sm leading-relaxed text-muted-foreground">Nenhuma recomendação aberta para este produto.</p>
+        )}
+      </Section>
+
+      <Section title="Margem por canal">
+        {priced.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum canal cadastrado. Adicione um canal abaixo para calcular margem.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {priced.map(({ channel: c, pricing: r }) => (
+              <article key={c.id} className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium">{c.marketplace_name}</span>
                   <span className="font-mono text-xs text-muted-foreground">{c.external_id ?? 'sem ID'}</span>
                 </div>
-                <span className="text-2xl font-semibold tabular">{formatBRL(c.current_price)}</span>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-2xl font-semibold tracking-tight tabular">{formatBRL(c.current_price)}</span>
+                  {r.status === 'ok' ? (
+                    <span className={`text-sm font-medium tabular ${marginTone(r.marginPct)}`}>{formatPct(r.marginPct)}</span>
+                  ) : null}
+                </div>
                 {r.status === 'ok' ? (
                   <>
-                    <dl className="flex flex-col gap-1.5 text-sm">
-                      {[
-                        ['Taxas marketplace', -r.marketplaceFees],
-                        ['Ads', -r.adsCost],
-                        ['Desconto vendedor', -r.sellerDiscount],
-                        ['Custo médio', -r.cost],
-                      ].map(([label, v]) => (
-                        <div key={label as string} className="flex justify-between gap-2">
-                          <dt className="text-muted-foreground">{label}</dt>
-                          <dd className="tabular">{formatBRL(v)}</dd>
-                        </div>
-                      ))}
-                      <div className="flex justify-between gap-2 border-t border-border pt-1.5">
-                        <dt>Margem de contribuição</dt>
-                        <dd className={`tabular ${r.marginPct < settings.minMarginPct ? 'text-critical' : r.marginPct < settings.targetMarginPct ? 'text-attention' : 'text-positive'}`}>
-                          {formatBRL(r.contributionMargin)} · {formatPct(r.marginPct)}
-                        </dd>
-                      </div>
-                    </dl>
-                    <div className="flex flex-col gap-0.5 rounded-md bg-surface-2 px-3 py-2 font-mono text-[11px] text-muted-foreground tabular">
-                      <span>Equilíbrio: {r.breakEvenPrice !== null ? formatBRL(r.breakEvenPrice) : 'n/d'}</span>
-                      <span>Meta {formatPct(r.targetMarginPct)}: {r.targetMarginPrice !== null ? formatBRL(r.targetMarginPrice) : 'n/d'}</span>
-                      <span>Regra: {r.rule.name}</span>
+                    <div className="flex flex-col gap-0.5 text-xs text-muted-foreground tabular">
+                      <span>Margem {formatBRL(r.contributionMargin)} por venda</span>
+                      <span>
+                        Equilíbrio {r.breakEvenPrice !== null ? formatBRL(r.breakEvenPrice) : 'n/d'} · Meta {formatPct(r.targetMarginPct)}{' '}
+                        {r.targetMarginPrice !== null ? formatBRL(r.targetMarginPrice) : 'n/d'}
+                      </span>
                     </div>
+                    <Disclosure summary="Ver composição">
+                      <dl className="flex flex-col gap-1.5 text-sm">
+                        {[
+                          ['Taxas marketplace', -r.marketplaceFees],
+                          ['Ads', -r.adsCost],
+                          ['Desconto vendedor', -r.sellerDiscount],
+                          ['Custo médio', -r.cost],
+                        ].map(([label, v]) => (
+                          <div key={label as string} className="flex justify-between gap-2">
+                            <dt className="text-muted-foreground">{label}</dt>
+                            <dd className="tabular">{formatBRL(v)}</dd>
+                          </div>
+                        ))}
+                        <div className="flex justify-between gap-2 border-t border-border pt-1.5 text-xs text-muted-foreground">
+                          <dt>Regra</dt>
+                          <dd>{r.rule.name}</dd>
+                        </div>
+                      </dl>
+                    </Disclosure>
                   </>
                 ) : (
                   <p className="text-sm leading-relaxed text-attention">{r.message}</p>
                 )}
-                <Link href={`/testes/novo?canal=${c.id}`} className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'self-start' })}>
+                <Link href={`/testes/novo?canal=${c.id}`} className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'mt-auto self-start' })}>
                   Criar teste neste canal
                 </Link>
-              </div>
-            )
-          })
-        )}
-      </section>
-
-      {recs.length ? (
-        <Panel title="Recomendações abertas">
-          <div className="divide-y divide-border">
-            {recs.map((r) => (
-              <RecommendationCard key={r.id} rec={r} compact />
+              </article>
             ))}
           </div>
-        </Panel>
-      ) : null}
+        )}
+      </Section>
 
       <CompetitionPanel
         productId={product.id}
@@ -149,32 +194,16 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         today={todayISO()}
         freshDays={settings.competitorFreshDays}
         gapPct={settings.competitivePriceGapPct}
-        channels={channels.map((c) => ({
+        channels={priced.map(({ channel: c, pricing }) => ({
           id: c.id,
           marketplace_name: c.marketplace_name,
           price: Number(c.current_price),
-          pricing: priceChannel(
-            {
-              marketplaceId: Number(c.marketplace_id),
-              price: Number(c.current_price),
-              adsCostPct: Number(c.ads_cost_pct),
-              sellerDiscount: Number(c.seller_discount),
-              category: product.category,
-              cost,
-            },
-            rules,
-            settings.targetMarginPct,
-            settings.minMarginPct,
-          ),
+          pricing,
         }))}
       />
 
       <div className="grid gap-8 lg:grid-cols-2">
-        <Panel
-          title={`Custo · média ponderada ${cost !== null ? formatBRL(cost) : '—'}`}
-          className="scroll-mt-6"
-          id="custo"
-        >
+        <Panel title={`Custo · média ponderada ${cost !== null ? formatBRL(cost) : '—'}`} className="scroll-mt-6" id="custo">
           <div className="flex flex-col gap-6 px-5 py-5">
             <CostLotForm productId={product.id} today={todayISO()} />
             {lots.length ? (
@@ -182,8 +211,13 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                 {lots.map((l) => (
                   <li key={l.id} className={`flex items-center justify-between gap-2 py-3 text-sm ${l.active ? '' : 'opacity-50'}`}>
                     <div className="flex flex-col">
-                      <span className="tabular">{l.quantity} un · {formatBRL(l.unit_cost)}</span>
-                      <span className="text-xs text-muted-foreground">{formatDate(l.effective_date)}{l.supplier ? ` · ${l.supplier}` : ''}</span>
+                      <span className="tabular">
+                        {l.quantity} un · {formatBRL(l.unit_cost)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(l.effective_date)}
+                        {l.supplier ? ` · ${l.supplier}` : ''}
+                      </span>
                     </div>
                     <InlineAction
                       action={toggleCostLot}
@@ -202,8 +236,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
             <ul className="divide-y divide-border">
               {experiments.map((e) => (
                 <li key={e.id}>
-                  <Link href={`/testes/${e.id}`} className="flex items-center justify-between gap-2 px-5 py-3 text-sm hover:bg-surface-2">
-                    <span><span className="font-mono text-xs text-muted-foreground">{formatTestCode(e.id)}</span> · {e.marketplace_name} · {e.previous_value} → {e.new_value}</span>
+                  <Link href={`/testes/${e.id}`} className="flex items-center justify-between gap-2 px-5 py-3 text-sm transition-colors hover:bg-surface-2">
+                    <span>
+                      <span className="font-mono text-xs text-muted-foreground">{formatTestCode(e.id)}</span> · {e.marketplace_name} ·{' '}
+                      {e.previous_value} → {e.new_value}
+                    </span>
                     <Badge tone={experimentTone(e.status)}>{EXPERIMENT_STATUS_LABEL[e.status]}</Badge>
                   </Link>
                 </li>
@@ -215,50 +252,43 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         </Panel>
       </div>
 
-      <Panel title="Canais">
-        <div className="flex flex-col divide-y divide-border">
+      <Section title="Detalhes">
+        <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
           {channels.map((c) => (
-            <details key={c.id} className="group px-5 py-4">
-              <summary className="cursor-pointer text-sm">{c.marketplace_name} · editar</summary>
-              <div className="pt-4">
-                <ChannelForm productId={product.id} channel={c} marketplaces={marketplaces} />
-              </div>
-            </details>
+            <Disclosure key={c.id} summary={`Canal ${c.marketplace_name}`} className="px-5 py-4">
+              <ChannelForm productId={product.id} channel={c} marketplaces={marketplaces} />
+            </Disclosure>
           ))}
           {freeMarketplaces.length ? (
-            <details className="px-5 py-4" open={channels.length === 0}>
-              <summary className="cursor-pointer text-sm text-primary">Adicionar canal</summary>
-              <div className="pt-4">
-                <ChannelForm productId={product.id} marketplaces={freeMarketplaces} />
-              </div>
-            </details>
+            <Disclosure summary="Adicionar canal" defaultOpen={channels.length === 0} className="px-5 py-4">
+              <ChannelForm productId={product.id} marketplaces={freeMarketplaces} />
+            </Disclosure>
           ) : null}
-        </div>
-      </Panel>
-
-      <div className="grid gap-8 lg:grid-cols-2">
-        <Panel title="Histórico de preço">
-          {history.length ? (
-            <ul className="divide-y divide-border">
-              {history.map((h) => (
-                <li key={h.id} className="flex flex-col gap-0.5 px-5 py-3 text-sm">
-                  <span className="tabular">
-                    {h.marketplace_name}: {h.previous_price ? `${formatBRL(h.previous_price)} → ` : ''}{formatBRL(h.price)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{formatDateTime(h.changed_at)} · {h.source}{h.reason ? ` · ${h.reason}` : ''}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="Sem histórico." />
-          )}
-        </Panel>
-        <Panel title="Dados do produto">
-          <div className="px-5 py-5">
+          <Disclosure summary={`Histórico de preço (${history.length})`} className="px-5 py-4">
+            {history.length ? (
+              <ul className="flex flex-col divide-y divide-border">
+                {history.map((h) => (
+                  <li key={h.id} className="flex flex-col gap-0.5 py-2.5 text-sm">
+                    <span className="tabular">
+                      {h.marketplace_name}: {h.previous_price ? `${formatBRL(h.previous_price)} → ` : ''}
+                      {formatBRL(h.price)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDateTime(h.changed_at)} · {h.source}
+                      {h.reason ? ` · ${h.reason}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Sem histórico.</p>
+            )}
+          </Disclosure>
+          <Disclosure summary="Dados do produto" className="px-5 py-4">
             <ProductForm product={product} />
-          </div>
-        </Panel>
-      </div>
+          </Disclosure>
+        </div>
+      </Section>
     </>
   )
 }

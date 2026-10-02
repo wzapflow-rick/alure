@@ -29,8 +29,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <Sidebar userName={user.name || user.email} openAlerts={alerts.n} />
-      <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-10">
-        <div className="mx-auto flex max-w-6xl flex-col gap-8">{children}</div>
+      <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-12 lg:px-14">
+        <div className="mx-auto flex max-w-6xl animate-rise flex-col gap-10">{children}</div>
       </main>
     </div>
   )

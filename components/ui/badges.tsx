@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils'
 export type Tone = 'critical' | 'attention' | 'positive' | 'info' | 'neutral'
 
 const TONE: Record<Tone, string> = {
-  critical: 'text-critical border-critical/30 bg-critical/10',
-  attention: 'text-attention border-attention/30 bg-attention/10',
-  positive: 'text-positive border-positive/30 bg-positive/10',
-  info: 'text-info border-info/30 bg-info/10',
+  critical: 'text-critical border-critical/20 bg-critical/10',
+  attention: 'text-attention border-attention/20 bg-attention/10',
+  positive: 'text-positive border-positive/20 bg-positive/10',
+  info: 'text-info border-info/20 bg-info/10',
   neutral: 'text-muted-foreground border-border bg-surface-2',
 }
 
@@ -22,7 +22,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wider',
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 transition-colors',
         TONE[tone],
         className,
       )}

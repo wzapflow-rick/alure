@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badges'
-import { EmptyState, Panel } from '@/components/ui/primitives'
+import { Disclosure, EmptyState, Panel } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
 import { CompetitorOfferForm } from '@/components/products/competitor-offer-form'
 import { deleteCompetitorOffer } from '@/lib/actions/competition'
@@ -88,16 +88,16 @@ export function CompetitionPanel({
 
               {pr ? (
                 <>
-                  <dl className="grid gap-px overflow-hidden rounded-md border border-border bg-border text-sm sm:grid-cols-2 lg:grid-cols-4">
+                  <dl className="grid gap-px overflow-hidden rounded-lg border border-border bg-border text-sm sm:grid-cols-2 lg:grid-cols-4">
                     {[
                       ['Nosso preço', formatBRL(c.price)],
                       ['Faixa observada', prices.length > 1 ? `${formatBRL(Math.min(...prices))} – ${formatBRL(Math.max(...prices))}` : formatBRL(prices[0])],
                       [pr.isolated ? 'Referência (menor da faixa)' : 'Menor oferta', `${formatBRL(pr.rival.price)} · ${formatPct(pr.gap, true)}`],
                       ['Piso econômico', pr.floor !== null ? formatBRL(pr.floor) : 'n/d (custo ou taxa ausente)'],
                     ].map(([label, value]) => (
-                      <div key={label} className="flex flex-col gap-0.5 bg-surface px-3 py-2.5">
+                      <div key={label} className="flex flex-col gap-1 bg-surface px-4 py-3">
                         <dt className="text-xs text-muted-foreground">{label}</dt>
-                        <dd className="tabular">{value}</dd>
+                        <dd className="text-base font-medium tabular">{value}</dd>
                       </div>
                     ))}
                   </dl>
@@ -122,6 +122,7 @@ export function CompetitionPanel({
               ) : null}
 
               {rows.length ? (
+                <Disclosure summary={`Ver ${rows.length} ${rows.length === 1 ? 'observação' : 'observações'}`}>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[640px] text-left text-sm">
                     <thead className="text-xs text-muted-foreground">
@@ -161,19 +162,20 @@ export function CompetitionPanel({
                     </tbody>
                   </table>
                 </div>
+                </Disclosure>
               ) : null}
             </section>
           )
         })}
 
-        <div className="flex flex-col gap-3 px-5 py-5">
+        <div className="flex flex-col gap-3 px-5 py-4">
           {channels.length ? (
-            <>
+            <Disclosure summary="Registrar oferta observada" bodyClassName="flex flex-col gap-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                {`Registre ofertas observadas. O motor usa só a observação mais recente de cada concorrente dos últimos ${formatInt(freshDays)} dias e nunca trata uma oferta isolada como preço do mercado.`}
+                {`O motor usa só a observação mais recente de cada concorrente dos últimos ${formatInt(freshDays)} dias e nunca trata uma oferta isolada como preço do mercado.`}
               </p>
               <CompetitorOfferForm productId={productId} channels={channels} today={today} />
-            </>
+            </Disclosure>
           ) : (
             <EmptyState title="Cadastre um canal antes de registrar concorrentes." />
           )}
