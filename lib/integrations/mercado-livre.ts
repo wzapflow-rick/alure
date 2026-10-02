@@ -108,7 +108,30 @@ export async function fetchMe(accessToken: string) {
   return apiGet<{ id: number; nickname: string }>('/users/me', accessToken)
 }
 
-async function connection() {
+export type RawCall = { endpoint: string; status: number; durationMs: number; body: unknown }
+
+/** Never throws: diagnostics need the real HTTP status (403/404) instead of an exception. */
+export async function apiGetRaw(path: string, accessToken: string): Promise<RawCall> {
+  const started = Date.now()
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (res.status === 429 && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      continue
+    }
+    const text = await res.text().catch(() => '')
+    let body: unknown = text
+    try {
+      body = JSON.parse(text)
+    } catch {}
+    return { endpoint: path, status: res.status, durationMs: Date.now() - started, body }
+  }
+}
+
+export async function connection() {
   const conn = await getActiveConnection('mercado_livre', refreshAccessToken)
   if (!conn) throw new Error('Mercado Livre não conectado ou token expirado. Conecte novamente em Configurações.')
   return conn
