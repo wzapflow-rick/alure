@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Bell,
+  Store,
   BookMarked,
   Compass,
   FlaskConical,
@@ -37,6 +38,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
       { href: '/produtos', label: 'Produtos', icon: Package },
       { href: '/testes', label: 'Testes', icon: FlaskConical },
       { href: '/alertas', label: 'Alertas', icon: Bell },
+      { href: '/venda-direta', label: 'Venda direta', icon: Store },
     ],
   },
   {

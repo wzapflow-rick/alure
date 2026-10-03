@@ -124,3 +124,19 @@
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
+
+/* Public catalog: light "porcelain and chrome" palette scoped to /catalogo. */
+.catalog-theme {
+  --background: #eef0ef;
+  --foreground: #0d1821;
+  --surface: #ffffff;
+  --surface-2: #e3e7e6;
+  --border: #d5dad9;
+  --muted-foreground: #5d6872;
+  --primary: #0b2236;
+  --primary-foreground: #f4f6f5;
+  --info: #13849b;
+  --critical: #b8432f;
+  --positive: #1d7a52;
+  color-scheme: light;
+}

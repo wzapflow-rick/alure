@@ -60,14 +60,38 @@ async function evolutionFetch<T>(cfg: EvolutionConfig, path: string, init?: Requ
   return (body ? JSON.parse(body) : null) as T
 }
 
+async function sendText(cfg: EvolutionConfig, number: string, text: string) {
+  await evolutionFetch(cfg, `/message/sendText/${encodeURIComponent(cfg.instance)}`, {
+    method: 'POST',
+    body: JSON.stringify({ number, text }),
+  })
+}
+
 export async function sendGroupText(text: string) {
   const cfg = evolutionConfig()
   if (!cfg) throw new Error('Evolution API não configurada (EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE).')
   if (!cfg.groupJid) throw new Error('Grupo não configurado (WHATSAPP_GROUP_JID).')
-  await evolutionFetch(cfg, `/message/sendText/${encodeURIComponent(cfg.instance)}`, {
-    method: 'POST',
-    body: JSON.stringify({ number: cfg.groupJid, text }),
-  })
+  await sendText(cfg, cfg.groupJid, text)
+}
+
+/**
+ * Catalog orders go to CATALOG_WHATSAPP_TO (a phone number or a group id) and fall back
+ * to the alerts group, so the feature works with the Evolution setup that already exists.
+ */
+export async function sendCatalogOrderText(text: string) {
+  const cfg = evolutionConfig()
+  if (!cfg) throw new Error('Evolution API não configurada (EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE).')
+  const raw = process.env.CATALOG_WHATSAPP_TO?.trim()
+  let target: string | null = cfg.groupJid
+  if (raw) {
+    if (raw.includes('@') || raw.includes('-')) target = normalizeGroupJid(raw)
+    else {
+      const digits = raw.replace(/\D/g, '')
+      target = digits.length === 10 || digits.length === 11 ? `55${digits}` : digits
+    }
+  }
+  if (!target) throw new Error('Destino não configurado (CATALOG_WHATSAPP_TO ou WHATSAPP_GROUP_JID).')
+  await sendText(cfg, target, text)
 }
 
 export type WhatsAppGroup = { id: string; subject: string }
