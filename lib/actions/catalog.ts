@@ -110,6 +110,11 @@ export async function saveCatalogItem(_: ActionState, formData: FormData): Promi
 }
 
 const ALLOWED_TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+
+// Newer Blob stores authenticate via OIDC (BLOB_STORE_ID + VERCEL_OIDC_TOKEN) instead of a read-write token.
+function hasBlobCredentials() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID)
+}
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 export async function uploadCatalogImages(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -123,8 +128,8 @@ export async function uploadCatalogImages(_: ActionState, formData: FormData): P
       if (!ALLOWED_TYPES[f.type]) return { ok: false, message: `${f.name}: use JPG, PNG ou WebP.` }
       if (f.size > MAX_IMAGE_BYTES) return { ok: false, message: `${f.name}: limite de 8 MB por foto.` }
     }
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return { ok: false, message: 'Armazenamento de fotos não configurado (BLOB_READ_WRITE_TOKEN).' }
+    if (!hasBlobCredentials()) {
+      return { ok: false, message: 'Armazenamento de fotos não configurado: conecte o Blob ao projeto na Vercel.' }
     }
 
     const item = await queryOne<{ sku: string }>('SELECT sku FROM catalog_items WHERE id = $1', [id])
@@ -156,7 +161,7 @@ export async function removeCatalogImage(_: ActionState, formData: FormData): Pr
     const user = await authed()
     const { id, url } = imageSchema.parse(formObject(formData))
     await query(`UPDATE catalog_items SET images = array_remove(images, $2), updated_at = now() WHERE id = $1`, [id, url])
-    if (process.env.BLOB_READ_WRITE_TOKEN && url.includes('.blob.vercel-storage.com')) {
+    if (hasBlobCredentials() && url.includes('.blob.vercel-storage.com')) {
       await del(url).catch((e) => console.error('[alure] blob delete failed:', e))
     }
     await logAudit({ user, action: 'catalog.images.remove', entityType: 'catalog_items', entityId: id, oldValue: url })
@@ -202,7 +207,7 @@ export async function deleteCatalogItem(_: ActionState, formData: FormData): Pro
     const user = await authed()
     const id = z.coerce.number().int().positive().parse(formData.get('id'))
     const old = await queryOne<{ images: string[] }>('DELETE FROM catalog_items WHERE id = $1 RETURNING *', [id])
-    if (old?.images?.length && process.env.BLOB_READ_WRITE_TOKEN) {
+    if (old?.images?.length && hasBlobCredentials()) {
       await del(old.images).catch((e) => console.error('[alure] blob delete failed:', e))
     }
     await logAudit({ user, action: 'catalog.delete', entityType: 'catalog_items', entityId: id, oldValue: old })
