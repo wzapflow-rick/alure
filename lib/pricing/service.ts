@@ -1,7 +1,7 @@
 import 'server-only'
 import { query } from '@/lib/db'
 import { toNumber, todayISO } from '@/lib/format'
-import { calculatePricing, type FeeRule } from '@/lib/pricing/engine'
+import { calculatePricing, selectFeeRule, type FeeRule } from '@/lib/pricing/engine'
 
 type FeeRuleRow = {
   id: string
@@ -120,6 +120,20 @@ function realFeeRule(f: RealFees): FeeRule {
   }
 }
 
+/**
+ * ML's quote covers only its own commission and shipping. The manual rule's additional %
+ * (e.g. the 7% paid on invoices) is a cost outside ML, so it still applies on top.
+ */
+function withManualSurcharge(real: FeeRule, manualRules: FeeRule[], channel: ChannelForPricing): FeeRule {
+  const manual = selectFeeRule(manualRules, Math.max(0, channel.price - channel.sellerDiscount), channel.category)
+  if (!manual || manual.additionalFeePct <= 0) return real
+  return {
+    ...real,
+    name: `${real.name} + ${pctLabel(manual.additionalFeePct)} NF (${manual.name})`,
+    additionalFeePct: manual.additionalFeePct,
+  }
+}
+
 export type ChannelForPricing = {
   marketplaceId: number
   price: number
@@ -143,7 +157,9 @@ export function priceChannel(
     adsCostPct: channel.adsCostPct,
     sellerDiscount: channel.sellerDiscount,
     category: channel.category,
-    rules: channel.realFees ? [realFeeRule(channel.realFees)] : (rulesByMarketplace.get(channel.marketplaceId) ?? []),
+    rules: channel.realFees
+      ? [withManualSurcharge(realFeeRule(channel.realFees), rulesByMarketplace.get(channel.marketplaceId) ?? [], channel)]
+      : (rulesByMarketplace.get(channel.marketplaceId) ?? []),
     targetMarginPct,
     minMarginPct,
   })
