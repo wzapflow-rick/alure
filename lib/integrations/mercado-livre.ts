@@ -148,6 +148,9 @@ type MeliItem = {
   attributes?: { id: string; value_name: string | null }[]
   catalog_listing?: boolean | null
   catalog_product_id?: string | null
+  listing_type_id?: string | null
+  category_id?: string | null
+  shipping?: { logistic_type?: string | null; free_shipping?: boolean | null } | null
 }
 
 function itemSku(item: MeliItem) {
@@ -185,7 +188,7 @@ export async function fetchListings(knownIds: string[] = []): Promise<Normalized
   for (let i = 0; i < ids.length; i += MULTIGET) {
     const batch = ids.slice(i, i + MULTIGET).join(',')
     const res = await apiGet<{ code: number; body: MeliItem }[]>(
-      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes,catalog_listing,catalog_product_id`,
+      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes,catalog_listing,catalog_product_id,listing_type_id,category_id,shipping`,
       conn.accessToken,
     )
     for (const { code, body } of res) {
@@ -200,6 +203,10 @@ export async function fetchListings(knownIds: string[] = []): Promise<Normalized
         availableQuantity: typeof body.available_quantity === 'number' ? body.available_quantity : null,
         catalogListing: Boolean(body.catalog_listing),
         catalogProductId: body.catalog_product_id ?? null,
+        listingTypeId: body.listing_type_id ?? null,
+        categoryId: body.category_id ?? null,
+        logisticType: body.shipping?.logistic_type ?? null,
+        freeShipping: body.shipping?.free_shipping ?? null,
       })
     }
   }

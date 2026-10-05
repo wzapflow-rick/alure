@@ -2,7 +2,7 @@ import 'server-only'
 import { pool } from '@/lib/db'
 import { todayISO } from '@/lib/format'
 import { apiGetRaw, connection, type RawCall } from '@/lib/integrations/mercado-livre'
-import { getActiveFeeRules, priceChannel } from '@/lib/pricing/service'
+import { getActiveFeeRules, getChannelFees, priceChannel } from '@/lib/pricing/service'
 import { getEngineSettings } from '@/lib/settings'
 import { competitivePressure, PRESSURE_LABEL, type Competition } from '@/lib/engine/rules'
 
@@ -177,7 +177,11 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : n
  */
 export async function previewEngine(skus: string[]) {
   const conn = await connection()
-  const [settings, feeRules] = await Promise.all([getEngineSettings(), getActiveFeeRules(todayISO())])
+  const [settings, feeRules, channelFees] = await Promise.all([
+    getEngineSettings(),
+    getActiveFeeRules(todayISO()),
+    getChannelFees(),
+  ])
   const { rows } = await pool.query<PreviewChannel>(
     `SELECT p.sku, pc.id AS product_channel_id, pc.external_id, pc.status, pc.current_price,
             pc.ads_cost_pct, pc.seller_discount, p.category, pcs.average_cost
@@ -239,6 +243,7 @@ export async function previewEngine(skus: string[]) {
         sellerDiscount: Number(lider.ch.seller_discount),
         category: lider.ch.category,
         cost: lider.ch.average_cost === null ? null : Number(lider.ch.average_cost),
+        realFees: channelFees.get(Number(lider.ch.product_channel_id)),
       },
       feeRules,
       settings.targetMarginPct,

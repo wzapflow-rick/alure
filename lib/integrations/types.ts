@@ -48,6 +48,12 @@ export type NormalizedListing = {
   /** Mercado Livre catalog listing (competes for the buy box); undefined when unknown. */
   catalogListing?: boolean
   catalogProductId?: string | null
+  /** Mercado Livre cost inputs: gold_pro (Premium) / gold_special (Clássico), category and logistics. */
+  listingTypeId?: string | null
+  categoryId?: string | null
+  /** 'fulfillment' = Full. */
+  logisticType?: string | null
+  freeShipping?: boolean | null
 }
 
 export type NormalizedDailyMetric = {

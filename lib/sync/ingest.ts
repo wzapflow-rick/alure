@@ -240,9 +240,21 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
         `SELECT EXISTS (SELECT 1 FROM information_schema.columns
                          WHERE table_name = 'product_channels' AND column_name = 'catalog_listing') AS ok`,
       )
+      const feeColumns = await pool.query<{ ok: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_name = 'product_channels' AND column_name = 'logistic_type') AS ok`,
+      )
       await withTransaction(async (client) => {
         for (const l of listings) {
           if (await upsertListing(client, marketplaceId, l)) processed++
+          if (feeColumns.rows[0]?.ok && l.listingTypeId !== undefined) {
+            await client.query(
+              `UPDATE product_channels
+                  SET listing_type_id = $3, ml_category_id = $4, logistic_type = $5, free_shipping = $6
+                WHERE marketplace_id = $1 AND external_id = $2`,
+              [marketplaceId, l.externalListingId, l.listingTypeId, l.categoryId ?? null, l.logisticType ?? null, l.freeShipping ?? null],
+            )
+          }
           if (catalogColumn.rows[0]?.ok && l.catalogListing !== undefined) {
             await client.query(
               `UPDATE product_channels SET catalog_listing = $3, catalog_product_id = $4
@@ -273,6 +285,18 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
         ])
       } catch (error) {
         competitionWarning = `Vencedor do catálogo não coletado: ${(error as Error).message}`
+      }
+      try {
+        const { collectListingFees } = await import('@/lib/integrations/meli-fees')
+        const fees = await collectListingFees(marketplaceId)
+        await pool.query(`UPDATE sync_jobs SET cursor = cursor || $2::jsonb WHERE id = $1`, [
+          jobId,
+          JSON.stringify({
+            taxas: { verificados: fees.checked, atualizados: fees.updated, erros: fees.errors, aviso: fees.skipped },
+          }),
+        ])
+      } catch (error) {
+        console.error('[alure] tarifas ML não coletadas:', (error as Error).message)
       }
     }
 

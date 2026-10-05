@@ -77,14 +77,23 @@ type StockRow = {
 }
 
 async function dispatchStock(today: string) {
+  const logistic = await pool.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'logistic_type') AS ok`,
+  )
+  // Only Full stock is alerted (db/011). Full units are shared by the SKU, so one row per product.
+  const fullOnly = Boolean(logistic.rows[0]?.ok)
   const { rows } = await pool.query<StockRow>(
-    `SELECT pc.id AS product_channel_id, p.id AS product_id, p.sku, p.name, m.name AS marketplace,
+    `SELECT DISTINCT ON (p.id, pc.marketplace_id)
+            pc.id AS product_channel_id, p.id AS product_id, p.sku, p.name, m.name AS marketplace,
             pc.available_quantity AS qty, s.level AS prev_level
        FROM product_channels pc
        JOIN products p ON p.id = pc.product_id
        JOIN marketplaces m ON m.id = pc.marketplace_id
        LEFT JOIN stock_alert_state s ON s.product_channel_id = pc.id
-      WHERE pc.status = 'active' AND p.active AND pc.available_quantity IS NOT NULL`,
+      WHERE pc.status = 'active' AND p.active AND pc.available_quantity IS NOT NULL
+            ${fullOnly ? `AND pc.logistic_type = 'fulfillment'` : ''}
+      ORDER BY p.id, pc.marketplace_id, pc.available_quantity DESC`,
   )
 
   const crossed: Array<StockRow & { level: number }> = []
@@ -109,7 +118,7 @@ async function dispatchStock(today: string) {
     return items.length ? [`*${label}* — estoque em até ${STOCK_LEVELS.find((l) => l.level === level)!.max} un`, ...trimList(items)].join('\n') : null
   }).filter(Boolean)
 
-  const message = [`*ALURE · ESTOQUE*`, ...sections, appUrl('/produtos')].join('\n\n')
+  const message = [fullOnly ? `*ALURE · ESTOQUE FULL*` : `*ALURE · ESTOQUE*`, ...sections, appUrl('/produtos')].join('\n\n')
   const key = `stock:${today}:${crossed.map((c) => `${c.product_channel_id}L${c.level}`).sort().join(',')}`
   if (await alreadySent(key)) return 0
   if (!(await deliver('stock', key, message))) return 0
