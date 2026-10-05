@@ -1,13 +1,12 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { Badge } from '@/components/ui/badges'
-import { EmptyState, Field, Input, Panel, Section, Stat, Textarea, buttonVariants } from '@/components/ui/primitives'
+import { EmptyState, Field, Input, Panel, Section, Stat, Textarea } from '@/components/ui/primitives'
+import { Chips } from '@/components/ui/tab-nav'
 import { ActionForm, InlineAction, SubmitButton } from '@/components/forms/action-form'
 import { importContacts, setContactOptOut } from '@/lib/actions/broadcast'
 import { formatDateTime } from '@/lib/broadcast/labels'
 import { contactStats, listContacts, loadSettings } from '@/lib/broadcast/queries'
 import { formatPhone } from '@/lib/broadcast/text'
-import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Contatos · Disparos' }
 
@@ -34,7 +33,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
       </div>
 
       <Panel title="Importar contatos">
-        <ActionForm action={importContacts} className="gap-4 p-5" resetOnSuccess>
+        <ActionForm action={importContacts} className="gap-4 p-4 sm:p-5" resetOnSuccess>
           <Field
             label="Lista (um contato por linha)"
             htmlFor="list"
@@ -62,31 +61,29 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
       </Panel>
 
       <Section title="Contatos" meta={`${contacts.length}${contacts.length === 200 ? '+' : ''} exibidos`}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <nav aria-label="Filtro" className="flex flex-wrap gap-2">
-            {FILTERS.map((x) => (
-              <Link
-                key={x.key}
-                href={{ pathname: '/disparos/contatos', query: { ...(q ? { q } : {}), ...(x.key !== 'all' ? { f: x.key } : {}) } }}
-                className={cn(buttonVariants({ variant: filter === x.key ? 'primary' : 'secondary', size: 'sm' }))}
-              >
-                {x.label}
-              </Link>
-            ))}
-          </nav>
+        <div className="flex flex-col gap-3 sm:flex-row-reverse sm:items-center sm:justify-between">
           <form className="flex gap-2" action="/disparos/contatos">
             {filter !== 'all' ? <input type="hidden" name="f" value={filter} /> : null}
             <label htmlFor="q" className="sr-only">
               Buscar contato
             </label>
-            <Input id="q" name="q" defaultValue={q} placeholder="Nome, telefone ou etiqueta" className="sm:w-64" />
+            <Input id="q" name="q" type="search" defaultValue={q} placeholder="Nome, telefone ou etiqueta" className="sm:w-64" />
           </form>
+          <Chips
+            label="Filtro"
+            items={FILTERS.map((x) => ({
+              key: x.key,
+              href: { pathname: '/disparos/contatos', query: { ...(q ? { q } : {}), ...(x.key !== 'all' ? { f: x.key } : {}) } },
+              label: x.label,
+              active: filter === x.key,
+            }))}
+          />
         </div>
         <Panel>
           {contacts.length ? (
             <ul className="divide-y divide-border">
               {contacts.map((c) => (
-                <li key={c.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:gap-4">
+                <li key={c.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate text-sm font-medium">{c.name ?? 'Sem nome'}</span>
                     <span className="font-mono text-xs text-muted-foreground">{formatPhone(c.phone)}</span>

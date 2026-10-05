@@ -45,7 +45,8 @@ function Changes({ groups }: { groups: ChangeGroup[] }) {
                 {`Anterior ${g.period_previous} · Atual ${g.period_current}`}
               </span>
             </div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[32rem] text-sm">
               <caption className="sr-only">{`Métricas de ${g.source}: período anterior e atual`}</caption>
               <thead>
                 <tr className="text-left font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -74,6 +75,7 @@ function Changes({ groups }: { groups: ChangeGroup[] }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         ))}
       </div>

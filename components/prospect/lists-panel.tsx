@@ -12,26 +12,26 @@ export function ListsPanel({ lists }: { lists: ListRow[] }) {
       {lists.length ? (
         <ul className="divide-y divide-border">
           {lists.map((l) => (
-            <li key={l.id} className="flex flex-col gap-3 px-5 py-4 lg:flex-row lg:items-start lg:gap-6">
+            <li key={l.id} className="flex flex-col gap-3 px-4 py-4 sm:px-5 md:flex-row md:items-center md:gap-6">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="text-sm font-medium">{l.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {l.total} contatos · {l.with_whatsapp} com WhatsApp · {l.exportable} prontos para envio
+                <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  {l.name}
+                  <Badge>{l.tag}</Badge>
                 </span>
-                <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  Etiqueta <Badge>{l.tag}</Badge>
-                  {l.exported_at ? `· ${l.exported_count} enviados em ${formatDateTime(l.exported_at)}` : null}
+                <span className="text-xs text-muted-foreground tabular">
+                  {l.total} contatos · {l.exportable} prontos para envio
+                  {l.exported_at ? ` · ${l.exported_count} enviados em ${formatDateTime(l.exported_at)}` : ''}
                 </span>
               </div>
-              <div className="flex flex-wrap items-start gap-2">
-                <ActionForm action={exportProspectList} className="max-w-sm gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <ActionForm action={exportProspectList} className="gap-2">
                   <input type="hidden" name="id" value={l.id} />
-                  <SubmitButton size="sm" variant={l.exported_at ? 'secondary' : 'primary'}>
-                    {l.exported_at ? 'Reenviar para Disparos' : 'Enviar para Disparos'}
+                  <SubmitButton size="sm" variant={l.exported_at ? 'secondary' : 'primary'} disabled={!l.exportable}>
+                    {l.exported_at ? 'Reenviar' : 'Enviar para Disparos'}
                   </SubmitButton>
                 </ActionForm>
                 {l.exported_at ? (
-                  <Link href="/disparos/nova" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                  <Link href="/disparos/nova" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
                     Criar campanha
                   </Link>
                 ) : null}

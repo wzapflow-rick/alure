@@ -1,7 +1,8 @@
+import { Globe, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badges'
-import { EmptyState, Input, Panel, Select } from '@/components/ui/primitives'
-import { ActionForm, SubmitButton } from '@/components/forms/action-form'
-import { SelectAll } from '@/components/prospect/select-all'
+import { EmptyState, Panel } from '@/components/ui/primitives'
+import { ActionForm } from '@/components/forms/action-form'
+import { BulkBar } from '@/components/prospect/select-all'
 import { addToProspectList } from '@/lib/actions/prospect'
 import { formatPhone } from '@/lib/broadcast/text'
 import { WA_STATUS, siteHost } from '@/lib/prospect/labels'
@@ -11,7 +12,7 @@ export function ProspectResults({ prospects, lists }: { prospects: ProspectRow[]
   if (!prospects.length) {
     return (
       <Panel>
-        <EmptyState title="Nenhum contato aqui." description="Faça uma busca acima ou troque o filtro." />
+        <EmptyState title="Nenhum contato aqui." description="Faça uma busca ou troque o filtro." />
       </Panel>
     )
   }
@@ -19,66 +20,58 @@ export function ProspectResults({ prospects, lists }: { prospects: ProspectRow[]
   return (
     <ActionForm action={addToProspectList} className="gap-3">
       <Panel>
-        <div className="flex flex-col gap-3 border-b border-border px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <SelectAll />
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label htmlFor="list_id" className="sr-only">
-              Lista de destino
-            </label>
-            <Select id="list_id" name="list_id" defaultValue="" className="sm:w-48">
-              <option value="">Nova lista…</option>
-              {lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </Select>
-            <label htmlFor="list_name" className="sr-only">
-              Nome da nova lista
-            </label>
-            <Input id="list_name" name="list_name" maxLength={60} placeholder="Nome da nova lista" className="sm:w-48" />
-            <SubmitButton size="sm">Adicionar à lista</SubmitButton>
-          </div>
-        </div>
+        <BulkBar lists={lists.map((l) => ({ id: l.id, name: l.name }))} />
         <ul className="divide-y divide-border">
           {prospects.map((p) => {
             const status = WA_STATUS[p.wa_status]
             const dispatchPhone = p.site_whatsapp ?? p.phone
             return (
               <li key={p.id}>
-                <label className="flex cursor-pointer flex-col gap-2 px-5 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-center sm:gap-4">
-                  <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <input
-                      type="checkbox"
-                      name="ids"
-                      value={p.id}
-                      data-whatsapp={String(p.wa_status === 'yes')}
-                      defaultChecked={p.wa_status === 'yes' && !p.in_base}
-                      className="mt-1 accent-primary"
-                    />
-                    <div className="flex min-w-0 flex-col gap-0.5">
+                <label className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2 sm:px-5">
+                  <input
+                    type="checkbox"
+                    name="ids"
+                    value={p.id}
+                    data-whatsapp={String(p.wa_status === 'yes')}
+                    defaultChecked={p.wa_status === 'yes' && !p.in_base}
+                    className="mt-1 size-4 shrink-0 accent-primary"
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5 md:flex-row md:items-center md:gap-4">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="truncate text-sm font-medium">{p.name}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {[p.category, p.address].filter(Boolean).join(' · ')}
+                      <span className="truncate text-xs text-muted-foreground">{[p.category, p.address].filter(Boolean).join(' · ')}</span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground md:w-56 md:flex-col md:items-start md:gap-0.5">
+                      <span className="font-mono text-foreground tabular">
+                        {dispatchPhone ? formatPhone(dispatchPhone) : 'sem telefone'}
+                        {p.site_whatsapp && p.site_whatsapp !== p.phone ? (
+                          <span className="ml-1.5 font-sans text-muted-foreground">via site</span>
+                        ) : null}
+                      </span>
+                      <span className="flex items-center gap-3">
+                        {p.rating ? (
+                          <span className="flex items-center gap-1 tabular">
+                            <Star className="size-3" aria-hidden />
+                            {Number(p.rating).toFixed(1)} ({p.reviews ?? 0})
+                          </span>
+                        ) : null}
+                        {p.website ? (
+                          <span className="flex min-w-0 items-center gap-1">
+                            <Globe className="size-3 shrink-0" aria-hidden />
+                            <span className="max-w-36 truncate">{siteHost(p.website)}</span>
+                          </span>
+                        ) : null}
                       </span>
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-0.5 pl-7 sm:w-44 sm:pl-0">
-                    <span className="font-mono text-xs tabular">{dispatchPhone ? formatPhone(dispatchPhone) : '—'}</span>
-                    {p.site_whatsapp && p.site_whatsapp !== p.phone ? (
-                      <span className="text-xs text-muted-foreground">WhatsApp do site</span>
-                    ) : null}
-                    {p.website ? <span className="truncate text-xs text-muted-foreground">{siteHost(p.website)}</span> : null}
-                  </div>
-                  <span className="pl-7 text-xs text-muted-foreground tabular sm:w-20 sm:pl-0 sm:text-right">
-                    {p.rating ? `${Number(p.rating).toFixed(1)} · ${p.reviews ?? 0}` : 'sem nota'}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5 pl-7 sm:w-56 sm:justify-end sm:pl-0">
-                    <Badge tone={status.tone}>{status.label}</Badge>
-                    {p.in_base ? <Badge tone="info">Já nos contatos</Badge> : null}
-                    {p.lists.map((l) => (
-                      <Badge key={l}>{l}</Badge>
-                    ))}
+
+                    <div className="flex flex-wrap items-center gap-1.5 md:w-44 md:justify-end">
+                      <Badge tone={status.tone}>{status.label}</Badge>
+                      {p.in_base ? <Badge tone="info">Nos contatos</Badge> : null}
+                      {p.lists.map((l) => (
+                        <Badge key={l}>{l}</Badge>
+                      ))}
+                    </div>
                   </div>
                 </label>
               </li>

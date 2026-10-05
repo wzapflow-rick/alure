@@ -1,11 +1,10 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
-import { Badge } from '@/components/ui/badges'
-import { EmptyState, Input, Panel, Section, Stat, buttonVariants } from '@/components/ui/primitives'
+import { EmptyState, Input, Panel, Section, Stat } from '@/components/ui/primitives'
+import { Chips } from '@/components/ui/tab-nav'
 import { ListsPanel } from '@/components/prospect/lists-panel'
 import { ProspectResults } from '@/components/prospect/results'
 import { SearchPanel, VerificationPanel } from '@/components/prospect/search-panels'
-import { formatDateTime } from '@/lib/broadcast/labels'
+import { AutoSubmitSelect } from '@/components/prospect/select-all'
 import { evolutionConfig } from '@/lib/notify/evolution'
 import { FILTER_LABEL } from '@/lib/prospect/labels'
 import {
@@ -20,7 +19,6 @@ import {
   type ProspectFilter,
 } from '@/lib/prospect/queries'
 import { serpApiKey } from '@/lib/prospect/serpapi'
-import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Prospecção · Disparos' }
 export const maxDuration = 300
@@ -54,100 +52,60 @@ export default async function ProspectingPage({
   const currentSearch = searches.find((s) => s.id === searchId)
   const pendingHere = searchId ? prospects.filter((p) => p.wa_status === 'pending' || p.wa_status === 'error').length : stats.pending + stats.error
 
-  const linkFor = (next: { busca?: string | null; f?: string }) => ({
+  const filterHref = (f: ProspectFilter) => ({
     pathname: '/disparos/prospeccao',
-    query: {
-      ...((next.busca === undefined ? searchId : next.busca) ? { busca: next.busca === undefined ? searchId : next.busca } : {}),
-      ...((next.f ?? filter) !== 'all' ? { f: next.f ?? filter } : {}),
-      ...(q ? { q } : {}),
-    },
+    query: { ...(searchId ? { busca: searchId } : {}), ...(f !== 'all' ? { f } : {}), ...(q ? { q } : {}) },
   })
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-4">
         <Stat label="Prospectados" value={stats.total} />
         <Stat label="Com WhatsApp" value={stats.yes} tone={stats.yes ? 'positive' : undefined} />
         <Stat label="A verificar" value={stats.pending + stats.error} />
-        <Stat label="Descartados" value={stats.no + stats.no_phone} hint={`${stats.no} sem WhatsApp · ${stats.no_phone} sem telefone`} />
+        <Stat label="Descartados" value={stats.no + stats.no_phone} hint={`${stats.no} sem WhatsApp · ${stats.no_phone} sem tel.`} />
       </div>
 
-      <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
-        Esses contatos não conhecem a ALURE. Comece com campanhas pequenas, mensagem que se apresenta e pergunta antes de vender, e
-        acompanhe as respostas: denúncias de quem não esperava a mensagem são o que bane o número.
-      </p>
+      <div className="flex flex-col gap-4">
+        <SearchPanel configured={Boolean(serpApiKey())} />
+        <VerificationPanel
+          settings={settings}
+          checkedToday={today}
+          pending={pendingHere}
+          searchId={searchId}
+          evolutionReady={Boolean(evolutionConfig())}
+        />
+      </div>
 
-      <SearchPanel configured={Boolean(serpApiKey())} />
-
-      <VerificationPanel
-        settings={settings}
-        checkedToday={today}
-        pending={pendingHere}
-        searchId={searchId}
-        evolutionReady={Boolean(evolutionConfig())}
-      />
-
-      {searches.length ? (
-        <Section title="Buscas recentes">
-          <nav aria-label="Buscas" className="flex flex-wrap gap-2">
-            <Link
-              href={linkFor({ busca: null })}
-              className={cn(buttonVariants({ variant: searchId ? 'secondary' : 'primary', size: 'sm' }))}
-            >
-              Todas
-            </Link>
+      <Section title="Resultados" meta={`${prospects.length}${prospects.length === 300 ? '+' : ''}`}>
+        <form action="/disparos/prospeccao" className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {filter !== 'all' ? <input type="hidden" name="f" value={filter} /> : null}
+          <label htmlFor="busca" className="sr-only">
+            Busca
+          </label>
+          <AutoSubmitSelect id="busca" name="busca" defaultValue={searchId ?? ''}>
+            <option value="">Todas as buscas</option>
             {searches.map((s) => (
-              <Link
-                key={s.id}
-                href={linkFor({ busca: s.id })}
-                title={s.error ?? `${formatDateTime(s.created_at)} · ${s.found} encontrados, ${s.created} novos`}
-                className={cn(buttonVariants({ variant: s.id === searchId ? 'primary' : 'secondary', size: 'sm' }), 'gap-2')}
-              >
-                <span className="max-w-56 truncate">
-                  {s.query}
-                  {s.location ? ` · ${s.location}` : ''}
-                </span>
-                {s.status === 'failed' ? (
-                  <Badge tone="critical">falhou</Badge>
-                ) : s.status === 'running' ? (
-                  <Badge>buscando</Badge>
-                ) : (
-                  <span className="text-xs tabular opacity-70">
-                    {s.with_whatsapp}/{s.found}
-                  </span>
-                )}
-              </Link>
+              <option key={s.id} value={s.id}>
+                {s.query}
+                {s.location ? ` · ${s.location}` : ''}
+                {s.status === 'failed' ? ' (falhou)' : s.status === 'running' ? ' (buscando)' : ` · ${s.with_whatsapp}/${s.found}`}
+              </option>
             ))}
-          </nav>
-          {currentSearch?.error ? <p className="text-sm text-critical">{currentSearch.error}</p> : null}
-        </Section>
-      ) : null}
+          </AutoSubmitSelect>
+          <label htmlFor="q" className="sr-only">
+            Filtrar por nome, categoria ou endereço
+          </label>
+          <Input id="q" name="q" type="search" defaultValue={q} placeholder="Filtrar por nome, categoria ou endereço" />
+        </form>
 
-      <Section
-        title="Resultados"
-        meta={`${prospects.length}${prospects.length === 300 ? '+' : ''} exibidos${currentSearch ? ` · ${currentSearch.query}` : ''}`}
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <nav aria-label="Filtro" className="flex flex-wrap gap-2">
-            {PROSPECT_FILTERS.map((key) => (
-              <Link
-                key={key}
-                href={linkFor({ f: key })}
-                className={cn(buttonVariants({ variant: filter === key ? 'primary' : 'secondary', size: 'sm' }))}
-              >
-                {FILTER_LABEL[key]}
-              </Link>
-            ))}
-          </nav>
-          <form className="flex gap-2" action="/disparos/prospeccao">
-            {searchId ? <input type="hidden" name="busca" value={searchId} /> : null}
-            {filter !== 'all' ? <input type="hidden" name="f" value={filter} /> : null}
-            <label htmlFor="q" className="sr-only">
-              Filtrar resultados
-            </label>
-            <Input id="q" name="q" defaultValue={q} placeholder="Nome, categoria ou endereço" className="sm:w-64" />
-          </form>
-        </div>
+        <Chips
+          label="Filtro de status"
+          items={PROSPECT_FILTERS.map((key) => ({ key, href: filterHref(key), label: FILTER_LABEL[key], active: filter === key }))}
+        />
+
+        {currentSearch?.error ? <p className="text-sm text-critical">{currentSearch.error}</p> : null}
+
         <ProspectResults prospects={prospects} lists={lists} />
       </Section>
 

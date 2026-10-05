@@ -86,7 +86,7 @@ export function Panel({
   return (
     <section id={id} className={cn('overflow-hidden rounded-xl border border-border bg-surface', className)}>
       {title ? (
-        <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
+        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border px-4 py-3.5 sm:px-5">
           <h2 className="text-sm font-medium text-foreground">{title}</h2>
           {action}
         </header>
@@ -185,7 +185,7 @@ export function Stat({
 
 export function EmptyState({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="flex flex-col items-start gap-1 px-5 py-8">
+    <div className="flex flex-col items-start gap-1 px-4 py-8 sm:px-5">
       <p className="text-sm text-muted-foreground">{title}</p>
       {description ? <p className="max-w-prose text-sm leading-relaxed text-muted-foreground/70">{description}</p> : null}
     </div>
