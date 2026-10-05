@@ -48,16 +48,58 @@ export async function connectionState(): Promise<ConnectionState> {
   return state === 'open' || state === 'connecting' || state === 'close' ? state : 'unknown'
 }
 
-async function evolutionFetch<T>(cfg: EvolutionConfig, path: string, init?: RequestInit): Promise<T> {
+export class EvolutionApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
+}
+
+async function evolutionFetch<T>(cfg: EvolutionConfig, path: string, init?: RequestInit, timeoutMs = 15_000): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     ...init,
     headers: { apikey: cfg.apiKey, 'Content-Type': 'application/json', ...init?.headers },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(timeoutMs),
     cache: 'no-store',
   })
   const body = await res.text()
-  if (!res.ok) throw new Error(`Evolution API ${res.status}: ${body.slice(0, 300)}`)
+  if (!res.ok) throw new EvolutionApiError(`Evolution API ${res.status}: ${body.slice(0, 300)}`, res.status)
   return (body ? JSON.parse(body) : null) as T
+}
+
+function requireConfig() {
+  const cfg = evolutionConfig()
+  if (!cfg) throw new Error('Evolution API não configurada (EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE).')
+  return cfg
+}
+
+/** Direct message to one contact. `typingMs` makes WhatsApp show "digitando…" before the text arrives. */
+export async function sendDirectText(number: string, text: string, opts: { typingMs?: number; linkPreview?: boolean } = {}) {
+  const cfg = requireConfig()
+  const typingMs = Math.max(0, Math.round(opts.typingMs ?? 0))
+  const res = await evolutionFetch<{ key?: { id?: string } }>(
+    cfg,
+    `/message/sendText/${encodeURIComponent(cfg.instance)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ number, text, ...(typingMs ? { delay: typingMs } : {}), linkPreview: opts.linkPreview ?? true }),
+    },
+    typingMs + 30_000,
+  )
+  return res?.key?.id ?? null
+}
+
+/** Asks WhatsApp whether the numbers have an account, without messaging them. */
+export async function checkWhatsAppNumbers(numbers: string[]) {
+  const cfg = requireConfig()
+  const res = await evolutionFetch<Array<{ exists?: boolean; number?: string; jid?: string }>>(
+    cfg,
+    `/chat/whatsappNumbers/${encodeURIComponent(cfg.instance)}`,
+    { method: 'POST', body: JSON.stringify({ numbers }) },
+  )
+  return (res ?? []).map((r) => ({ number: String(r.number ?? r.jid ?? '').replace(/\D/g, ''), exists: Boolean(r.exists) }))
 }
 
 async function sendText(cfg: EvolutionConfig, number: string, text: string) {
