@@ -46,14 +46,13 @@ function toAdmin(row: ItemRow): CatalogAdminItem {
   }
 }
 
-/** Public storefront list: items without a usable photo stay in the database but are not shown. */
+/** Public storefront list. Items without a photo are shown with a "Foto em breve" placeholder. */
 export async function listPublishedItems(): Promise<CatalogItem[]> {
   const rows = await query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE published ORDER BY sort_order, name`,
   )
   return rows
     .map((row) => ({ ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }))
-    .filter((row) => row.images.length > 0)
     .map(toPublic)
 }
 
