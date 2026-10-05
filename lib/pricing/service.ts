@@ -48,6 +48,78 @@ export async function getActiveFeeRules(onDate = todayISO()) {
   return byMarketplace
 }
 
+/** Real Mercado Livre costs quoted for this specific listing (db/011). */
+export type RealFees = {
+  channelId: number
+  listingTypeId: string | null
+  logisticType: string | null
+  saleFeePct: number
+  saleFeeFixed: number
+  shippingCost: number | null
+  syncedOn: string
+}
+
+/** Real per-listing ML fees; empty before db/011 runs or before the first sync quotes them. */
+export async function getChannelFees(channelIds?: number[]) {
+  const map = new Map<number, RealFees>()
+  const ready = await query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'sale_fee_pct') AS ok`,
+  )
+  if (!ready[0]?.ok) return map
+  const rows = await query<{
+    id: string
+    listing_type_id: string | null
+    logistic_type: string | null
+    sale_fee_pct: string
+    sale_fee_fixed: string | null
+    shipping_cost: string | null
+    synced_on: string
+  }>(
+    `SELECT id, listing_type_id, logistic_type, sale_fee_pct, sale_fee_fixed, shipping_cost,
+            to_char(fees_synced_at, 'YYYY-MM-DD') AS synced_on
+       FROM product_channels
+      WHERE sale_fee_pct IS NOT NULL ${channelIds ? 'AND id = ANY($1::bigint[])' : ''}`,
+    channelIds ? [channelIds] : [],
+  )
+  for (const r of rows) {
+    map.set(Number(r.id), {
+      channelId: Number(r.id),
+      listingTypeId: r.listing_type_id,
+      logisticType: r.logistic_type,
+      saleFeePct: Number(r.sale_fee_pct),
+      saleFeeFixed: Number(r.sale_fee_fixed ?? 0),
+      shippingCost: toNumber(r.shipping_cost),
+      syncedOn: r.synced_on,
+    })
+  }
+  return map
+}
+
+const LISTING_TYPE_LABEL: Record<string, string> = { gold_pro: 'Premium', gold_special: 'Clássico', free: 'Grátis' }
+const pctLabel = (n: number) => `${n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
+const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+function realFeeRule(f: RealFees): FeeRule {
+  const type = (f.listingTypeId && LISTING_TYPE_LABEL[f.listingTypeId]) || f.listingTypeId || 'anúncio'
+  const envio = f.logisticType === 'fulfillment' ? 'Full' : 'envio'
+  const parts = [`${type} ${pctLabel(f.saleFeePct)}`]
+  if (f.saleFeeFixed > 0) parts.push(`fixa ${brl(f.saleFeeFixed)}`)
+  parts.push(f.shippingCost === null ? 'frete não obtido' : `frete ${envio} ${brl(f.shippingCost)}`)
+  return {
+    id: -f.channelId,
+    name: `Tarifa real ML (${parts.join(' + ')}) · ${f.syncedOn}`,
+    percentageFee: f.saleFeePct,
+    fixedFee: f.saleFeeFixed,
+    additionalFeePct: 0,
+    additionalFixedFee: f.shippingCost ?? 0,
+    minPrice: null,
+    maxPrice: null,
+    category: null,
+    effectiveFrom: f.syncedOn,
+  }
+}
+
 export type ChannelForPricing = {
   marketplaceId: number
   price: number
@@ -55,6 +127,8 @@ export type ChannelForPricing = {
   sellerDiscount: number
   category: string | null
   cost: number | null
+  /** When present, replaces the manual fee rules with the costs ML quoted for this listing. */
+  realFees?: RealFees | null
 }
 
 export function priceChannel(
@@ -69,7 +143,7 @@ export function priceChannel(
     adsCostPct: channel.adsCostPct,
     sellerDiscount: channel.sellerDiscount,
     category: channel.category,
-    rules: rulesByMarketplace.get(channel.marketplaceId) ?? [],
+    rules: channel.realFees ? [realFeeRule(channel.realFees)] : (rulesByMarketplace.get(channel.marketplaceId) ?? []),
     targetMarginPct,
     minMarginPct,
   })

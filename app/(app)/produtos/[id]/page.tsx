@@ -8,7 +8,7 @@ import { ChannelForm, CostLotForm, ProductForm } from '@/components/products/pro
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
 import { toggleCostLot } from '@/lib/actions/products'
 import { formatBRL, formatDate, formatDateTime, formatPct, formatTestCode, todayISO } from '@/lib/format'
-import { getActiveFeeRules, priceChannel } from '@/lib/pricing/service'
+import { getActiveFeeRules, getChannelFees, priceChannel } from '@/lib/pricing/service'
 import {
   getCostLots,
   getPriceHistory,
@@ -57,6 +57,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     listCompetitorOffers(num),
   ])
 
+  const channelFees = await getChannelFees(channels.map((c) => Number(c.id)))
   const cost = product.average_cost !== null ? Number(product.average_cost) : null
   const usedMarketplaces = new Set(channels.map((c) => c.marketplace_id))
   const freeMarketplaces = marketplaces.filter((m) => !usedMarketplaces.has(m.id))
@@ -71,6 +72,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         sellerDiscount: Number(c.seller_discount),
         category: product.category,
         cost,
+        realFees: channelFees.get(Number(c.id)),
       },
       rules,
       settings.targetMarginPct,

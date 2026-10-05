@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg'
 import { query, withTransaction } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
 import { daysBetween, todayISO, toNumber } from '@/lib/format'
-import { getActiveFeeRules, priceChannel } from '@/lib/pricing/service'
+import { getActiveFeeRules, getChannelFees, priceChannel } from '@/lib/pricing/service'
 import { getEngineSettings, type EngineSettings } from '@/lib/settings'
 import type { SessionUser } from '@/lib/session'
 import {
@@ -337,6 +337,7 @@ export async function loadChannelStats(
   )
 
   const feeRules = await getActiveFeeRules(today)
+  const channelFees = await getChannelFees()
   const competition = COMPETITIVE_INTELLIGENCE_ACTIVE ? await loadCompetition(today, competitorFreshDays) : new Map<number, Competition>()
 
   const stats = rows.map<ChannelStats & { category: string | null }>((r) => {
@@ -385,6 +386,7 @@ export async function loadChannelStats(
           sellerDiscount: Number(r.seller_discount),
           category: r.category,
           cost: toNumber(r.average_cost),
+          realFees: channelFees.get(Number(r.product_channel_id)),
         },
         feeRules,
         targetMarginPct,
