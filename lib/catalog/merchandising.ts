@@ -52,13 +52,25 @@ export function customerOrderMessage(lines: Pick<CartLine, 'name' | 'qty'>[], co
   return [
     'Olá! Tenho interesse nos seguintes produtos da ALURE:',
     '',
-    ...lines.map((l) => `• ${l.name} — ${l.qty} un.`),
+    ...lines.map((l) => `• ${l.name} — ${l.qty} ${l.qty === 1 ? 'unidade' : 'unidades'}`),
     '',
-    'Gostaria de confirmar disponibilidade e valor do frete.',
+    'Gostaria de confirmar disponibilidade e condições de compra.',
     code ? `\nPedido ${code}` : null,
   ]
     .filter((l) => l !== null)
     .join('\n')
 }
 
+/** Card title without the brand and the model code, which the card already shows separately. */
+export function shortProductName(name: string) {
+  const short = name
+    .replace(/\bdeca\b/gi, '')
+    .replace(/\b[a-z]{0,3}\d{3,4}\.[\w.]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[\s\-–·/]+$/, '')
+    .trim()
+  return short.length >= 8 ? short : name
+}
+
 export const HELP_MESSAGE = 'Olá! Preciso de ajuda para escolher produtos da ALURE.'
+export const PRO_CONTACT_MESSAGE = 'Olá! Compro para projeto/revenda e gostaria de atendimento direto da ALURE.'

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { useCart } from '@/components/catalog/cart-provider'
 import { QuantityStepper } from '@/components/catalog/quantity-stepper'
+import { trackCatalog } from '@/lib/catalog/analytics'
 import type { CatalogItem } from '@/lib/catalog/types'
 import { cn } from '@/lib/utils'
 
@@ -24,6 +25,7 @@ export function AddToCart({
 
   function handleAdd() {
     add(item, qty)
+    trackCatalog('add_to_cart', { sku: item.sku, qty, value: Math.round(item.price * qty * 100) / 100 })
     setQty(1)
     setJustAdded(true)
     window.setTimeout(() => setJustAdded(false), 1600)

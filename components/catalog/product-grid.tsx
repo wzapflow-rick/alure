@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { ProductCard } from '@/components/catalog/product-card'
+import { trackCatalog } from '@/lib/catalog/analytics'
 import { availableGroups, itemGroups } from '@/lib/catalog/merchandising'
 import type { CatalogItem } from '@/lib/catalog/types'
 import { cn } from '@/lib/utils'
@@ -25,7 +26,10 @@ export function ProductGrid({ items }: { items: CatalogItem[] }) {
             <button
               key={label}
               type="button"
-              onClick={() => setActive(label)}
+              onClick={() => {
+                setActive(label)
+                trackCatalog('category_selected', { category: label })
+              }}
               aria-pressed={active === label}
               className={cn(
                 'h-10 shrink-0 snap-start rounded-full px-5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/60',

@@ -6,6 +6,7 @@ import { ArrowLeft, CheckCircle2, Loader2, MessageCircle, Trash2, X } from 'luci
 import { useCart } from '@/components/catalog/cart-provider'
 import { QuantityStepper } from '@/components/catalog/quantity-stepper'
 import { submitCatalogOrder } from '@/lib/actions/catalog-order'
+import { trackCatalog } from '@/lib/catalog/analytics'
 import { catalogWhatsAppNumber, customerOrderMessage, whatsAppLink } from '@/lib/catalog/merchandising'
 import { formatBRL } from '@/lib/format'
 
@@ -115,6 +116,7 @@ export function CartDrawer() {
                 href={waHref}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackCatalog('whatsapp_order_sent')}
                 className="mt-2 inline-flex h-12 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90"
               >
                 <MessageCircle className="size-4" aria-hidden />
@@ -185,7 +187,10 @@ export function CartDrawer() {
               <p className="text-xs leading-relaxed text-muted-foreground">Frete e prazo são combinados pelo WhatsApp.</p>
               <button
                 type="button"
-                onClick={() => setStep('checkout')}
+                onClick={() => {
+                  setStep('checkout')
+                  trackCatalog('whatsapp_checkout', { items: lines.length, units: count, value: Math.round(total * 100) / 100 })
+                }}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground hover:opacity-90"
               >
                 <MessageCircle className="size-4" aria-hidden />
