@@ -27,6 +27,7 @@ export function ProductCard({
         <ProductImage
           src={item.images[0]}
           alt={item.name}
+          sku={item.sku}
           sizes="(min-width: 1024px) 260px, (min-width: 768px) 30vw, 62vw"
           priority={priority}
           className="aspect-square transition-transform duration-500 group-hover:scale-[1.03]"
