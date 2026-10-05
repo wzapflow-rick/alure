@@ -9,18 +9,27 @@ export function QuantityStepper({
   onChange,
   label,
   size = 'md',
+  fullWidth = false,
 }: {
   value: number
   onChange: (qty: number) => void
   label: string
   size?: 'sm' | 'md'
+  fullWidth?: boolean
 }) {
   const btn = cn(
-    'inline-flex items-center justify-center text-foreground transition-colors hover:bg-surface-2 disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/50',
+    'inline-flex shrink-0 items-center justify-center text-foreground transition-colors hover:bg-surface-2 disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/50',
     size === 'sm' ? 'size-8' : 'size-10',
   )
   return (
-    <div className="inline-flex items-center rounded-full border border-border bg-surface" role="group" aria-label={label}>
+    <div
+      className={cn(
+        'items-center rounded-full border border-border bg-surface',
+        fullWidth ? 'flex w-full justify-between [&>input]:flex-1' : 'inline-flex',
+      )}
+      role="group"
+      aria-label={label}
+    >
       <button type="button" className={cn(btn, 'rounded-l-full')} onClick={() => onChange(value - 1)} disabled={value <= 1} aria-label="Diminuir">
         <Minus className="size-3.5" aria-hidden />
       </button>

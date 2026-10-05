@@ -46,11 +46,39 @@ function toAdmin(row: ItemRow): CatalogAdminItem {
   }
 }
 
+/** Public storefront list: items without a usable photo stay in the database but are not shown. */
 export async function listPublishedItems(): Promise<CatalogItem[]> {
   const rows = await query<ItemRow>(
     `SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE published ORDER BY sort_order, name`,
   )
-  return rows.map(toPublic)
+  return rows
+    .map((row) => ({ ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }))
+    .filter((row) => row.images.length > 0)
+    .map(toPublic)
+}
+
+/** Catalog item ids ranked by real marketplace units sold in the last 90 days (linked via product_id). */
+export async function listBestSellerIds(limit = 8): Promise<number[]> {
+  try {
+    const rows = await query<{ id: string }>(
+      `SELECT ci.id
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         JOIN catalog_items ci ON ci.product_id = oi.product_id
+        WHERE ci.published
+          AND o.order_date > now() - interval '90 days'
+          AND o.status NOT ILIKE 'cancel%'
+        GROUP BY ci.id
+       HAVING SUM(oi.quantity) > 0
+        ORDER BY SUM(oi.quantity) DESC
+        LIMIT $1`,
+      [limit],
+    )
+    return rows.map((r) => Number(r.id))
+  } catch (error) {
+    console.error('[alure] catalog best sellers failed:', error)
+    return []
+  }
 }
 
 export async function getPublishedItem(id: number): Promise<CatalogItem | null> {
