@@ -1,61 +1,107 @@
 import Image from 'next/image'
+import { BadgeCheck, MessageCircle, Tag, Users } from 'lucide-react'
 import { isDbConfigured } from '@/lib/db'
-import { listPublishedItems } from '@/lib/catalog/queries'
+import { listBestSellerIds, listPublishedItems } from '@/lib/catalog/queries'
 import { ProductGrid } from '@/components/catalog/product-grid'
+import { ProductRail } from '@/components/catalog/product-rail'
+import { WhatsAppHelp } from '@/components/catalog/whatsapp-help'
 import type { CatalogItem } from '@/lib/catalog/types'
 
 export const dynamic = 'force-dynamic'
 
-async function loadItems(): Promise<CatalogItem[] | null> {
+async function loadCatalog(): Promise<{ items: CatalogItem[]; bestSellerIds: number[] } | null> {
   if (!isDbConfigured()) return null
   try {
-    return await listPublishedItems()
+    const [items, bestSellerIds] = await Promise.all([listPublishedItems(), listBestSellerIds()])
+    return { items, bestSellerIds }
   } catch (error) {
     console.error('[alure] catalog load failed:', error)
     return null
   }
 }
 
+const BENEFITS = [
+  { icon: BadgeCheck, label: 'Produtos Deca' },
+  { icon: Tag, label: 'Preços competitivos' },
+  { icon: Users, label: 'Atendimento direto' },
+  { icon: MessageCircle, label: 'Compra pelo WhatsApp' },
+]
+
 export default async function CatalogPage() {
-  const items = await loadItems()
+  const catalog = await loadCatalog()
+  const items = catalog?.items ?? null
+  const offers = items?.filter((i) => i.compareAtPrice !== null) ?? []
+  const byId = new Map(items?.map((i) => [i.id, i]) ?? [])
+  const bestSellers = (catalog?.bestSellerIds ?? []).map((id) => byId.get(id)).filter((i): i is CatalogItem => Boolean(i))
 
   return (
     <>
-      <section className="mx-auto max-w-6xl px-5 pt-6 md:px-8 md:pt-10">
-        <div className="relative flex flex-col overflow-hidden rounded-3xl border border-border bg-surface-2 md:min-h-[440px] md:justify-center">
-          <div className="relative z-10 flex max-w-lg flex-col gap-5 p-7 md:p-12">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-info">Venda direta</p>
-            <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-balance md:text-5xl">
-              Metais e acabamentos, direto de quem vende.
+      <section className="mx-auto max-w-6xl px-5 pt-5 md:px-8 md:pt-8">
+        <div className="grid overflow-hidden rounded-3xl bg-surface-2 md:grid-cols-[1fr_1.15fr]">
+          <div className="flex flex-col justify-center gap-5 px-6 py-8 md:px-12 md:py-14">
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-info">Venda direta ALURE</p>
+            <h1 className="text-[2rem] font-semibold leading-[1.08] tracking-tight text-balance md:text-5xl">
+              Metais e acabamentos Deca para seu projeto.
             </h1>
             <p className="max-w-md leading-relaxed text-muted-foreground text-pretty">
-              Escolha os produtos e as quantidades, envie o pedido e a gente confirma disponibilidade, frete e prazo com você
-              pelo WhatsApp.
+              Produtos selecionados, preços especiais e atendimento direto pelo WhatsApp.
             </p>
             <a
               href="#produtos"
-              className="inline-flex h-11 w-fit items-center rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90"
+              className="inline-flex h-12 w-fit items-center rounded-full bg-primary px-7 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
             >
               Ver produtos
             </a>
           </div>
-          <div className="relative aspect-[16/10] md:absolute md:inset-0 md:aspect-auto">
+          <div className="relative aspect-[16/10] md:aspect-auto md:min-h-[400px]">
             <Image
               src="/catalogo/hero.png"
               alt="Misturador cromado sobre bancada de pedra clara"
               fill
               priority
-              sizes="(min-width: 1152px) 1088px, 100vw"
-              className="object-cover md:object-right"
+              sizes="(min-width: 1152px) 600px, (min-width: 768px) 54vw, 100vw"
+              className="object-cover"
             />
-            <div className="absolute inset-0 hidden bg-gradient-to-r from-surface-2 via-surface-2/70 to-transparent md:block" />
           </div>
         </div>
       </section>
 
-      <section id="produtos" className="mx-auto flex max-w-6xl scroll-mt-20 flex-col gap-8 px-5 py-14 md:px-8 md:py-20">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Seleção</h2>
+      <section aria-label="Por que comprar com a ALURE" className="mx-auto max-w-6xl px-5 md:px-8">
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border py-6 md:flex md:justify-between md:py-7">
+          {BENEFITS.map(({ icon: Icon, label }) => (
+            <li key={label} className="flex items-center gap-2.5 text-sm text-foreground">
+              <Icon className="size-4 shrink-0 text-info" aria-hidden />
+              {label}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {offers.length > 0 ? (
+        <section id="ofertas" className="mx-auto flex max-w-6xl scroll-mt-20 flex-col gap-6 px-5 pt-12 md:px-8 md:pt-16">
+          <div className="flex items-end justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-info">Preço especial</p>
+              <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Ofertas ALURE</h2>
+            </div>
+            <p className="hidden text-sm text-muted-foreground md:block">
+              {offers.length} {offers.length === 1 ? 'produto' : 'produtos'}
+            </p>
+          </div>
+          <ProductRail items={offers} label="Ofertas ALURE" />
+        </section>
+      ) : null}
+
+      {bestSellers.length >= 2 ? (
+        <section id="mais-vendidos" className="mx-auto flex max-w-6xl scroll-mt-20 flex-col gap-6 px-5 pt-12 md:px-8 md:pt-16">
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Mais vendidos</h2>
+          <ProductRail items={bestSellers} label="Mais vendidos" />
+        </section>
+      ) : null}
+
+      <section id="produtos" className="mx-auto flex max-w-6xl scroll-mt-20 flex-col gap-6 px-5 py-12 md:px-8 md:py-16">
+        <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+          <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">O que você procura?</h2>
           {items?.length ? (
             <p className="text-sm text-muted-foreground">
               {items.length} {items.length === 1 ? 'produto' : 'produtos'} · preços por unidade
@@ -70,6 +116,8 @@ export default async function CatalogPage() {
           <ProductGrid items={items} />
         )}
       </section>
+
+      <WhatsAppHelp />
     </>
   )
 }

@@ -127,15 +127,15 @@
 
 /* Public catalog: light "porcelain and chrome" palette scoped to /catalogo. */
 .catalog-theme {
-  --background: #eef0ef;
-  --foreground: #0d1821;
+  --background: #f6f4ef;
+  --foreground: #121c25;
   --surface: #ffffff;
-  --surface-2: #e3e7e6;
-  --border: #d5dad9;
-  --muted-foreground: #5d6872;
-  --primary: #0b2236;
-  --primary-foreground: #f4f6f5;
-  --info: #13849b;
+  --surface-2: #ece8e0;
+  --border: #e3ded4;
+  --muted-foreground: #6e685f;
+  --primary: #123f4b;
+  --primary-foreground: #f6f4ef;
+  --info: #2b6977;
   --critical: #b8432f;
   --positive: #1d7a52;
   color-scheme: light;

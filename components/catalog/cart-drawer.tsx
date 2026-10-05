@@ -2,10 +2,11 @@
 
 import Image from 'next/image'
 import { useEffect, useRef, useState, useTransition } from 'react'
-import { ArrowLeft, CheckCircle2, Loader2, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Loader2, MessageCircle, Trash2, X } from 'lucide-react'
 import { useCart } from '@/components/catalog/cart-provider'
 import { QuantityStepper } from '@/components/catalog/quantity-stepper'
 import { submitCatalogOrder } from '@/lib/actions/catalog-order'
+import { catalogWhatsAppNumber, customerOrderMessage, whatsAppLink } from '@/lib/catalog/merchandising'
 import { formatBRL } from '@/lib/format'
 
 type Step = 'cart' | 'checkout' | 'done'
@@ -19,7 +20,9 @@ export function CartDrawer() {
   const [step, setStep] = useState<Step>('cart')
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState<string | null>(null)
+  const [waHref, setWaHref] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const waNumber = catalogWhatsAppNumber()
 
   useEffect(() => {
     const dialog = dialogRef.current
@@ -38,6 +41,7 @@ export function CartDrawer() {
     e.preventDefault()
     const data = new FormData(e.currentTarget)
     setError(null)
+    const snapshot = lines.map((l) => ({ name: l.name, qty: l.qty }))
     startTransition(async () => {
       const result = await submitCatalogOrder({
         name: String(data.get('name') ?? ''),
@@ -50,6 +54,7 @@ export function CartDrawer() {
       })
       if (result.ok) {
         setCode(result.code)
+        setWaHref(waNumber ? whatsAppLink(waNumber, customerOrderMessage(snapshot, result.code)) : null)
         clear()
         setStep('done')
       } else {
@@ -101,12 +106,29 @@ export function CartDrawer() {
             <p className="text-2xl font-semibold tracking-tight text-balance">Recebemos seu pedido.</p>
             <p className="font-mono text-sm text-muted-foreground">{code}</p>
             <p className="max-w-sm leading-relaxed text-muted-foreground text-pretty">
-              Nossa equipe vai confirmar disponibilidade, frete e prazo com você pelo WhatsApp em breve.
+              {waHref
+                ? 'Abra a conversa com a ALURE para confirmar disponibilidade e frete. A mensagem já vai com os produtos escolhidos.'
+                : 'Nossa equipe vai confirmar disponibilidade, frete e prazo com você pelo WhatsApp em breve.'}
             </p>
+            {waHref ? (
+              <a
+                href={waHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex h-12 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90"
+              >
+                <MessageCircle className="size-4" aria-hidden />
+                Abrir conversa no WhatsApp
+              </a>
+            ) : null}
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="mt-2 h-11 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90"
+              className={
+                waHref
+                  ? 'h-11 rounded-full px-2 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
+                  : 'mt-2 h-11 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90'
+              }
             >
               Continuar vendo o catálogo
             </button>
@@ -164,9 +186,10 @@ export function CartDrawer() {
               <button
                 type="button"
                 onClick={() => setStep('checkout')}
-                className="h-12 rounded-full bg-primary text-sm font-medium text-primary-foreground hover:opacity-90"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground hover:opacity-90"
               >
-                Continuar
+                <MessageCircle className="size-4" aria-hidden />
+                Finalizar pelo WhatsApp
               </button>
             </footer>
           </>
@@ -224,8 +247,8 @@ export function CartDrawer() {
                 disabled={pending}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
               >
-                {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-                Enviar pedido
+                {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <MessageCircle className="size-4" aria-hidden />}
+                Enviar pedido pelo WhatsApp
               </button>
             </footer>
           </form>

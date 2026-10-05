@@ -77,7 +77,7 @@ export function ProductsTable({
                     onClick={() => router.push(`/produtos/${p.id}`)}
                     className={cn('cursor-pointer transition-colors duration-150 hover:bg-surface-2/60', !p.active && 'opacity-50')}
                   >
-                    <td className="max-w-md px-5 py-3.5">
+                    <td className="max-w-sm px-5 py-3.5">
                       <Link href={`/produtos/${p.id}`} className="flex flex-col gap-0.5" onClick={(e) => e.stopPropagation()}>
                         <span className="truncate">{p.name}</span>
                         <span className="text-xs text-muted-foreground">
@@ -95,9 +95,9 @@ export function ProductsTable({
                           title={`Preço ${formatBRL(p.ml_price ?? 0)} · comissão ${Number(p.ml_fee_pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% · frete ${formatBRL(p.ml_shipping ?? 0)}`}
                         >
                           <span>{formatBRL(p.ml_fee_total)}</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap text-xs text-muted-foreground">
                             {Number(p.ml_fee_pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
-                            {Number(p.ml_shipping) > 0 ? ` + frete ${formatBRL(p.ml_shipping ?? 0)}` : ''}
+                            {Number(p.ml_shipping) > 0 ? ` + ${formatBRL(p.ml_shipping ?? 0)} frete` : ''}
                           </span>
                         </span>
                       ) : (

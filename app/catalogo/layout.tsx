@@ -2,13 +2,16 @@ import type { Metadata, Viewport } from 'next'
 import { CartProvider } from '@/components/catalog/cart-provider'
 import { CatalogHeader } from '@/components/catalog/catalog-header'
 import { CartDrawer } from '@/components/catalog/cart-drawer'
+import { CartBar } from '@/components/catalog/cart-bar'
+
+const description = 'Metais e acabamentos Deca para seu projeto. Produtos selecionados, preços especiais e atendimento direto pelo WhatsApp.'
 
 export const metadata: Metadata = {
-  title: { default: 'Catálogo ALURE', template: '%s · Catálogo ALURE' },
-  description: 'Metais e acabamentos com preço de venda direta. Monte seu pedido e receba o atendimento pelo WhatsApp.',
+  title: { default: 'ALURE · Metais e acabamentos Deca', template: '%s · ALURE' },
+  description,
   openGraph: {
-    title: 'Catálogo ALURE · venda direta',
-    description: 'Metais e acabamentos com preço de venda direta. Monte seu pedido e receba o atendimento pelo WhatsApp.',
+    title: 'ALURE · Metais e acabamentos Deca',
+    description,
     images: [{ url: '/catalogo/hero.png', width: 1536, height: 864 }],
     locale: 'pt_BR',
     type: 'website',
@@ -16,23 +19,30 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#eef0ef',
+  themeColor: '#f6f4ef',
   colorScheme: 'light',
 }
 
 export default function CatalogLayout({ children }: { children: React.ReactNode }) {
   return (
     <CartProvider>
-      <div className="catalog-theme flex min-h-dvh flex-col bg-background text-foreground">
+      <div className="catalog-theme flex min-h-dvh flex-col bg-background pb-20 text-foreground md:pb-0">
         <CatalogHeader />
         <main className="flex-1">{children}</main>
         <footer className="border-t border-border">
-          <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 py-8 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8">
-            <span className="font-semibold tracking-[0.28em] text-foreground">ALURE</span>
-            <span>Preços de venda direta. Disponibilidade, frete e prazo confirmados no atendimento.</span>
+          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 md:flex-row md:items-end md:justify-between md:px-8">
+            <div className="flex flex-col gap-2">
+              <span className="text-lg font-semibold tracking-[0.32em]">ALURE</span>
+              <span className="text-sm text-muted-foreground">{'Metais • Acabamentos • Soluções'}</span>
+            </div>
+            <div className="flex flex-col gap-1 text-sm text-muted-foreground md:items-end">
+              <span>Compra direta ALURE</span>
+              <span>Atendimento pelo WhatsApp</span>
+            </div>
           </div>
         </footer>
       </div>
+      <CartBar />
       <CartDrawer />
     </CartProvider>
   )
