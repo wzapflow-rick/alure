@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react'
 import { getPublishedItem } from '@/lib/catalog/queries'
 import { ProductGallery } from '@/components/catalog/product-gallery'
 import { AddToCart } from '@/components/catalog/add-to-cart'
+import { TrackEvent } from '@/components/catalog/track-event'
 import { formatBRL } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -33,7 +34,8 @@ export default async function CatalogItemPage({ params }: { params: Promise<{ id
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-8 md:px-8 md:py-12">
-      <Link href="/catalogo#produtos" className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+      <TrackEvent event="product_view" props={{ sku: item.sku, id: item.id }} />
+      <Link href="/catalogo#selecao" className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" aria-hidden />
         Voltar ao catálogo
       </Link>

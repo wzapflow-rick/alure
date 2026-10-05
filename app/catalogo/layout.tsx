@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from 'next'
+import { Analytics } from '@vercel/analytics/next'
 import { CartProvider } from '@/components/catalog/cart-provider'
 import { CatalogHeader } from '@/components/catalog/catalog-header'
 import { CartDrawer } from '@/components/catalog/cart-drawer'
 import { CartBar } from '@/components/catalog/cart-bar'
 
-const description = 'Metais e acabamentos Deca para seu projeto. Produtos selecionados, preços especiais e atendimento direto pelo WhatsApp.'
+const description =
+  'Metais e acabamentos Deca para seus projetos. Uma seleção ALURE para profissionais, lojas e projetos, com atendimento direto pelo WhatsApp.'
 
 export const metadata: Metadata = {
   title: { default: 'ALURE · Metais e acabamentos Deca', template: '%s · ALURE' },
@@ -44,6 +46,7 @@ export default function CatalogLayout({ children }: { children: React.ReactNode 
       </div>
       <CartBar />
       <CartDrawer />
+      <Analytics />
     </CartProvider>
   )
 }

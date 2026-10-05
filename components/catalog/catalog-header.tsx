@@ -17,8 +17,8 @@ export function CatalogHeader() {
             ALURE
           </Link>
           <nav aria-label="Principal" className="hidden items-center gap-8 sm:flex">
-            <Link href="/catalogo#produtos" className={navLink}>
-              Catálogo
+            <Link href="/catalogo#selecao" className={navLink}>
+              Seleção
             </Link>
             <Link href="/catalogo#venda-direta" className={navLink}>
               Venda direta

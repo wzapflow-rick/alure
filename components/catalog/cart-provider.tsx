@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { trackCatalog } from '@/lib/catalog/analytics'
 import { MAX_QTY_PER_ITEM, type CartLine, type CatalogItem } from '@/lib/catalog/types'
 
 const STORAGE_KEY = 'alure-catalog-cart-v1'
@@ -27,7 +28,12 @@ function clampQty(qty: number) {
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [lines, setLines] = useState<CartLine[]>([])
   const [hydrated, setHydrated] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
+
+  const setOpen = useCallback((next: boolean) => {
+    setOpenState(next)
+    if (next) trackCatalog('cart_open')
+  }, [])
 
   useEffect(() => {
     try {
@@ -68,7 +74,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const count = lines.reduce((s, l) => s + l.qty, 0)
     const total = lines.reduce((s, l) => s + l.qty * l.price, 0)
     return { lines, count, total, open, setOpen, add, setQty, remove, clear }
-  }, [lines, open, add, setQty, remove, clear])
+  }, [lines, open, setOpen, add, setQty, remove, clear])
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }
