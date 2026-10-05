@@ -60,6 +60,9 @@ export function ProductsTable({
                 <th scope="col" className="px-5 py-2.5 font-normal">Produto</th>
                 <th scope="col" className="px-5 py-2.5 text-right font-normal">Vendas 30d</th>
                 <th scope="col" className="px-5 py-2.5 text-right font-normal">Faturamento 30d</th>
+                <th scope="col" className="px-5 py-2.5 text-right font-normal">
+                  <span title="Tarifa real do anúncio no ML por unidade: comissão + taxa fixa + frete pago por vocês">Taxa ML</span>
+                </th>
                 <th scope="col" className="px-5 py-2.5 text-right font-normal">Custo médio</th>
                 <th scope="col" className="px-5 py-2.5 text-right font-normal">Canais</th>
                 <th scope="col" className="px-5 py-2.5 text-right font-normal">Status</th>
@@ -85,6 +88,22 @@ export function ProductsTable({
                     </td>
                     <td className="px-5 py-3.5 text-right tabular">{p.orders_30d ? formatInt(p.orders_30d) : '—'}</td>
                     <td className="px-5 py-3.5 text-right tabular">{p.revenue_30d ? formatBRL(p.revenue_30d) : '—'}</td>
+                    <td className="px-5 py-3.5 text-right tabular">
+                      {p.ml_fee_total ? (
+                        <span
+                          className="flex flex-col items-end gap-0.5"
+                          title={`Preço ${formatBRL(p.ml_price ?? 0)} · comissão ${Number(p.ml_fee_pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% · frete ${formatBRL(p.ml_shipping ?? 0)}`}
+                        >
+                          <span>{formatBRL(p.ml_fee_total)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {Number(p.ml_fee_pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                            {Number(p.ml_shipping) > 0 ? ` + frete ${formatBRL(p.ml_shipping ?? 0)}` : ''}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3.5 text-right tabular">
                       {p.average_cost ? (
                         formatBRL(p.average_cost)
