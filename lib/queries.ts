@@ -294,17 +294,41 @@ export type ProductListRow = {
   channels: number
   revenue_30d: string | null
   orders_30d: string | null
+  /** Real ML cost per unit for the main listing (commission + fixed fee + seller-paid shipping). */
+  ml_fee_total: string | null
+  ml_fee_pct: string | null
+  ml_shipping: string | null
+  ml_price: string | null
 }
 
 export async function listProducts() {
+  const feesReady = await queryOne<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'product_channels' AND column_name = 'sale_fee_pct') AS ok`,
+  )
+  const feeSelect = feesReady?.ok
+    ? `fee.ml_fee_total, fee.ml_fee_pct, fee.ml_shipping, fee.ml_price`
+    : `NULL::numeric AS ml_fee_total, NULL::numeric AS ml_fee_pct, NULL::numeric AS ml_shipping, NULL::numeric AS ml_price`
+  const feeJoin = feesReady?.ok
+    ? `LEFT JOIN LATERAL (
+         SELECT ROUND(pc.current_price * pc.sale_fee_pct / 100 + COALESCE(pc.sale_fee_fixed, 0) + COALESCE(pc.shipping_cost, 0), 2) AS ml_fee_total,
+                pc.sale_fee_pct AS ml_fee_pct, pc.shipping_cost AS ml_shipping, pc.current_price AS ml_price
+           FROM product_channels pc JOIN marketplaces m ON m.id = pc.marketplace_id
+          WHERE pc.product_id = p.id AND m.code = 'mercado_livre' AND pc.sale_fee_pct IS NOT NULL
+          ORDER BY (pc.status = 'active') DESC, pc.catalog_listing DESC, pc.current_price DESC
+          LIMIT 1
+       ) fee ON true`
+    : ''
   return query<ProductListRow>(
     `SELECT p.id, p.sku, p.name, p.category, p.classification, p.active, pc2.average_cost,
             (SELECT COUNT(*)::int FROM product_channels pc WHERE pc.product_id = p.id) AS channels,
             (SELECT SUM(sm.revenue) FROM sales_metrics sm JOIN product_channels pc ON pc.id = sm.product_channel_id
               WHERE pc.product_id = p.id AND sm.metric_date > $1::date - 30) AS revenue_30d,
             (SELECT SUM(sm.orders) FROM sales_metrics sm JOIN product_channels pc ON pc.id = sm.product_channel_id
-              WHERE pc.product_id = p.id AND sm.metric_date > $1::date - 30) AS orders_30d
+              WHERE pc.product_id = p.id AND sm.metric_date > $1::date - 30) AS orders_30d,
+            ${feeSelect}
        FROM products p LEFT JOIN product_costs pc2 ON pc2.product_id = p.id
+       ${feeJoin}
       ORDER BY p.active DESC, p.name`,
     [todayISO()],
   )
