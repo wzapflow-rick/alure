@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { EmptyState, PageHeader, Panel, buttonVariants } from '@/components/ui/primitives'
 import { ProductsTable } from '@/components/products/products-table'
 import { listProducts } from '@/lib/queries'
@@ -15,9 +15,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         title="Produtos"
         description="Catálogo, custo médio e classificação estratégica."
         action={
-          <Link href="/produtos/novo" className={buttonVariants({ variant: 'primary', size: 'sm' })}>
-            <Plus className="size-4" aria-hidden /> Novo produto
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/produtos/importar-custos" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+              <Upload className="size-4" aria-hidden /> Importar custos
+            </Link>
+            <Link href="/produtos/novo" className={buttonVariants({ variant: 'primary', size: 'sm' })}>
+              <Plus className="size-4" aria-hidden /> Novo produto
+            </Link>
+          </div>
         }
       />
       <Panel>
