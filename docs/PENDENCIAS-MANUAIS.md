@@ -61,6 +61,17 @@ A Vercel chama `/api/cron/sync` todo dia às 09:00 UTC (06:00 em Brasília). Sem
 |---|---|
 | `CRON_SECRET` | Texto aleatório longo. Gere com `openssl rand -base64 32`. |
 
+### 3.1 Agendador dos Disparos (cron-job.org, a cada minuto)
+
+A Vercel Cron no plano Hobby só roda uma vez por dia. Por isso os disparos usam o cron-job.org, que é gratuito. Cada chamada envia poucas mensagens e sempre respeita os intervalos, as pausas e a janela de horário de **Disparos → Proteções**. Chamar com mais frequência não acelera nada.
+
+1. Crie uma conta em https://cron-job.org e clique em **Create cronjob**.
+2. **URL**: `https://alure-six.vercel.app/api/cron/disparos?key=<CRON_SECRET>` (o mesmo valor da variável `CRON_SECRET`).
+3. **Execution schedule**: a cada 1 minuto (`* * * * *`).
+4. **Advanced → Request method**: `GET`. **Timeout**: 30 s. Ative o aviso por e-mail em caso de falha.
+5. Salve e use **Test run**. A resposta esperada é `202 {"accepted":true}`. Se vier `401`, a chave está errada.
+6. Para conferir na hora o que o motor faria, abra a mesma URL com `&wait=1` no final. A resposta mostra `status`, `sent`, `failed` e `skipped`.
+
 ## 4. Assistente de IA
 
 O prompt pedia `OPENAI_API_KEY`. O assistente usa o **Vercel AI Gateway**, que já se autentica sozinho na Vercel. Por isso não precisa de chave.
