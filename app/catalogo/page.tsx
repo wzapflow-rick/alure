@@ -1,10 +1,11 @@
-import Image from 'next/image'
 import { isDbConfigured } from '@/lib/db'
 import { listBestSellerIds, listPublishedItems } from '@/lib/catalog/queries'
 import { buildShowcase } from '@/lib/catalog/curation'
 import { CatalogShowcase } from '@/components/catalog/catalog-showcase'
 import { ProductGrid } from '@/components/catalog/product-grid'
 import { ProCta } from '@/components/catalog/pro-cta'
+import { CatalogHero } from '@/components/catalog/catalog-hero'
+import { BrandSignature } from '@/components/catalog/brand-signature'
 import { TrackEvent } from '@/components/catalog/track-event'
 import type { CatalogItem } from '@/lib/catalog/types'
 
@@ -33,37 +34,7 @@ export default async function CatalogPage() {
     <>
       <TrackEvent event="catalog_open" />
 
-      <section className="mx-auto max-w-6xl px-5 pt-4 md:px-8 md:pt-8">
-        <div className="grid overflow-hidden rounded-2xl bg-surface-2 md:grid-cols-[1fr_1.1fr]">
-          <div className="flex flex-col justify-center gap-4 px-6 py-7 md:gap-5 md:px-12 md:py-14">
-            <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-info">
-              {'Metais • Acabamentos • Soluções'}
-            </p>
-            <h1 className="text-[1.85rem] font-semibold leading-[1.08] tracking-tight text-balance md:text-5xl">
-              Metais e acabamentos Deca para seus projetos.
-            </h1>
-            <p className="max-w-md leading-relaxed text-muted-foreground text-pretty">
-              Uma seleção ALURE para profissionais, lojas e projetos.
-            </p>
-            <a
-              href="#selecao"
-              className="inline-flex h-12 w-fit items-center rounded-full bg-primary px-7 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              Ver produtos
-            </a>
-          </div>
-          <div className="relative aspect-[16/9] md:aspect-auto md:min-h-[420px]">
-            <Image
-              src="/catalogo/hero.png"
-              alt="Misturador cromado sobre bancada de pedra clara"
-              fill
-              priority
-              sizes="(min-width: 1152px) 600px, (min-width: 768px) 52vw, 100vw"
-              className="object-cover"
-            />
-          </div>
-        </div>
-      </section>
+      <CatalogHero />
 
       <div className="pt-8 md:pt-12">
         {catalog === null ? (
@@ -83,7 +54,7 @@ export default async function CatalogPage() {
       </div>
 
       <ProCta />
-      <div className="h-16 md:h-24" />
+      <BrandSignature />
     </>
   )
 }
