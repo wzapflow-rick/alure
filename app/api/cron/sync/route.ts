@@ -6,6 +6,7 @@ import { runAnalysis } from '@/lib/analysis'
 import { dispatchNotifications } from '@/lib/notify/dispatch'
 import { syncRange } from '@/lib/sync/range'
 import { runSync } from '@/lib/sync/ingest'
+import { syncMeliAds } from '@/lib/profit/ads-sync'
 
 export const maxDuration = 300
 
@@ -20,6 +21,10 @@ export async function GET(request: NextRequest) {
   const range = syncRange(3)
   const results: Record<string, unknown> = {}
   for (const { code } of rows) results[code] = await runSync(code, range)
+  if (rows.some((r) => r.code === 'mercado_livre')) {
+    // Re-read a week: the ML revises recent days' Ads cost after the fact.
+    results.mercado_livre_ads = await syncMeliAds(syncRange(7)).catch((err: Error) => ({ status: 'error', detail: err.message }))
+  }
   if (rows.length) {
     await logAudit({ user: null, action: 'sync.scheduled', entityType: 'sync_jobs', newValue: { range, results } })
   }

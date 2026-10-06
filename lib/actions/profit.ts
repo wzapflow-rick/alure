@@ -7,6 +7,7 @@ import { logAudit } from '@/lib/audit'
 import { authed, failure, formObject, isoDate, type ActionState } from '@/lib/actions/shared'
 import { PROFIT_SETTINGS_KEY, profitSchemaReady } from '@/lib/profit/queries'
 import { syncSellerShipping } from '@/lib/profit/shipping'
+import { syncMeliAds } from '@/lib/profit/ads-sync'
 
 const PATH = '/lucratividade'
 const brNumber = (v: string) => Number(v.replace(/\./g, '').replace(',', '.'))
@@ -76,6 +77,26 @@ export async function saveTaxRate(_: ActionState, fd: FormData): Promise<ActionS
     await logAudit({ user, action: 'settings.update', entityType: 'app_settings', entityId: PROFIT_SETTINGS_KEY, newValue: input })
     revalidatePath(PATH)
     return { ok: true, message: 'Alíquota salva.' }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+export async function refreshAds(_: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    const user = await authed()
+    const { from, to } = z.object({ from: isoDate, to: isoDate }).parse(formObject(fd))
+    const result = await syncMeliAds({ from, to })
+    await logAudit({ user, action: 'ads.sync', entityType: 'advertising_metrics', newValue: result })
+    revalidatePath(PATH)
+    const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    const clamped = result.window.from !== from ? ' (o ML guarda só os últimos 90 dias)' : ''
+    return {
+      ok: true,
+      message: `Ads lidos: ${money(result.total)} em ${result.days} ${result.days === 1 ? 'dia' : 'dias'}${
+        result.roas ? ` · ROAS ${result.roas.toFixed(2).replace('.', ',')}x` : ''
+      }${clamped}.`,
+    }
   } catch (error) {
     return failure(error)
   }

@@ -3,7 +3,7 @@ import { Disclosure, EmptyState, PageHeader, Panel } from '@/components/ui/primi
 import { ProfitFiltersBar, buildPresets } from '@/components/profit/filters'
 import { ProfitSummary } from '@/components/profit/summary'
 import { DayTable, ProductTable } from '@/components/profit/tables'
-import { AdSpendForm, RefreshShippingButton, TaxRateForm } from '@/components/profit/settings-forms'
+import { AdSpendForm, RefreshAdsButton, RefreshShippingButton, TaxRateForm } from '@/components/profit/settings-forms'
 import { getProfitReport, profitSchemaReady, type ProfitFilters } from '@/lib/profit/queries'
 import { todayISO } from '@/lib/format'
 
@@ -39,7 +39,12 @@ export default async function ProfitPage({
         eyebrow="Financeiro"
         title="Vendas e lucratividade"
         description="Quanto vendemos, quanto ficou com o ML, quanto pagamos de frete e Ads, e o que sobrou de margem."
-        action={<RefreshShippingButton from={from} to={to} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <RefreshAdsButton from={from} to={to} />
+            <RefreshShippingButton from={from} to={to} />
+          </div>
+        }
       />
 
       {!ready ? (

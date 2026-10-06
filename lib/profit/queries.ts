@@ -235,7 +235,14 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
   if (adsApplies) {
     const adRows = await query<{ day: string; amount: string }>(
       `SELECT to_char(d, 'YYYY-MM-DD') AS day, sum(amount) AS amount FROM (
-         ${schemaReady ? 'SELECT spend_date AS d, amount FROM ad_spend_daily WHERE spend_date BETWEEN $1 AND $2 UNION ALL' : ''}
+         ${
+           schemaReady
+             ? `SELECT a.spend_date AS d, a.amount FROM ad_spend_daily a
+                 WHERE a.spend_date BETWEEN $1 AND $2
+                   AND NOT EXISTS (SELECT 1 FROM advertising_metrics m WHERE m.metric_date = a.spend_date)
+                UNION ALL`
+             : ''
+         }
          SELECT metric_date AS d, COALESCE(cost, 0) AS amount FROM advertising_metrics WHERE metric_date BETWEEN $1 AND $2
        ) x GROUP BY 1`,
       [filters.from, filters.to],

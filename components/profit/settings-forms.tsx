@@ -3,7 +3,7 @@
 import { RefreshCw } from 'lucide-react'
 import { ActionForm, SubmitButton } from '@/components/forms/action-form'
 import { Field, Input } from '@/components/ui/primitives'
-import { refreshShipping, saveAdSpend, saveTaxRate } from '@/lib/actions/profit'
+import { refreshAds, refreshShipping, saveAdSpend, saveTaxRate } from '@/lib/actions/profit'
 
 export function RefreshShippingButton({ from, to }: { from: string; to: string }) {
   return (
@@ -13,6 +13,19 @@ export function RefreshShippingButton({ from, to }: { from: string; to: string }
       <SubmitButton variant="secondary" size="sm">
         <RefreshCw className="size-3.5" aria-hidden />
         Ler fretes do ML
+      </SubmitButton>
+    </ActionForm>
+  )
+}
+
+export function RefreshAdsButton({ from, to }: { from: string; to: string }) {
+  return (
+    <ActionForm action={refreshAds} className="flex-row flex-wrap items-center gap-3">
+      <input type="hidden" name="from" value={from} />
+      <input type="hidden" name="to" value={to} />
+      <SubmitButton variant="secondary" size="sm">
+        <RefreshCw className="size-3.5" aria-hidden />
+        Ler Ads do ML
       </SubmitButton>
     </ActionForm>
   )
