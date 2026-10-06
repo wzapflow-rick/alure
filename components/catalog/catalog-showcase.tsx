@@ -40,7 +40,7 @@ export function CatalogShowcase({ showcase }: { showcase: Showcase }) {
                 aria-pressed={audience === key}
                 title={hint}
                 className={cn(
-                  'h-11 rounded-full px-5 text-xs font-semibold uppercase tracking-[0.16em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/60',
+                  'h-11 min-w-0 truncate rounded-full px-2 text-xs font-semibold uppercase tracking-[0.1em] transition-colors md:px-5 md:tracking-[0.16em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/60',
                   audience === key
                     ? 'bg-foreground text-background'
                     : 'bg-surface text-foreground ring-1 ring-border hover:ring-foreground/30',

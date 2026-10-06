@@ -18,7 +18,7 @@ export function ProductGrid({ items }: { items: CatalogItem[] }) {
     <div className="flex flex-col gap-8">
       {groups.length > 0 ? (
         <div
-          className="-mx-5 flex snap-x gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] md:mx-0 md:px-0"
+          className="-mx-5 flex snap-x scroll-px-5 gap-2 overflow-x-auto overscroll-x-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:scroll-px-0 md:px-0"
           role="group"
           aria-label="Filtrar por categoria"
         >

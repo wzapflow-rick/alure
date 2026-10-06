@@ -28,7 +28,7 @@ export const viewport: Viewport = {
 export default function CatalogLayout({ children }: { children: React.ReactNode }) {
   return (
     <CartProvider>
-      <div className="catalog-theme flex min-h-dvh flex-col bg-background pb-20 text-foreground md:pb-0">
+      <div className="catalog-theme flex min-h-dvh flex-col overflow-x-clip bg-background pb-20 text-foreground md:pb-0">
         <CatalogHeader />
         <main className="flex-1">{children}</main>
         <footer className="border-t border-border">
