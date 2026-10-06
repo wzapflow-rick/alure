@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import Image from 'next/image'
 import { redirect } from 'next/navigation'
 import { LiquidGlassLogo } from '@/components/auth/liquid-glass-logo'
@@ -8,6 +8,11 @@ import { getDbStatus } from '@/lib/db'
 import { getSessionUser } from '@/lib/session'
 
 export const metadata: Metadata = { title: 'Entrar' }
+
+export const viewport: Viewport = {
+  themeColor: '#050a0f',
+  colorScheme: 'dark',
+}
 
 export default async function SignInPage() {
   const status = await getDbStatus()

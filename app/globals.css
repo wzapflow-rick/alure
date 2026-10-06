@@ -161,6 +161,12 @@
   color-scheme: dark;
 }
 
+/* Safari paints the status bar and toolbar area with the html background, so match the dark sign-in. */
+html:has(.brand-dark) {
+  background-color: var(--brand-ink);
+  color-scheme: dark;
+}
+
 /* Public catalog: light "porcelain and chrome" palette scoped to /catalogo. */
 .catalog-theme {
   --background: #f6f4ef;
