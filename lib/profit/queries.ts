@@ -6,12 +6,14 @@ export const PROFIT_SETTINGS_KEY = 'profit'
 
 export type ProfitSettings = { taxRatePct: number }
 
+export const DEFAULT_TAX_RATE_PCT = 7
+
 export async function getProfitSettings(): Promise<ProfitSettings> {
   const row = await queryOne<{ value: Partial<ProfitSettings> }>('SELECT value FROM app_settings WHERE key = $1', [
     PROFIT_SETTINGS_KEY,
   ])
-  const rate = Number(row?.value?.taxRatePct ?? 0)
-  return { taxRatePct: Number.isFinite(rate) && rate >= 0 ? rate : 0 }
+  const rate = Number(row?.value?.taxRatePct ?? DEFAULT_TAX_RATE_PCT)
+  return { taxRatePct: Number.isFinite(rate) && rate >= 0 ? rate : DEFAULT_TAX_RATE_PCT }
 }
 
 export async function profitSchemaReady() {
