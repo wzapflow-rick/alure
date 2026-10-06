@@ -85,17 +85,18 @@ export async function saveTaxRate(_: ActionState, fd: FormData): Promise<ActionS
 export async function refreshAds(_: ActionState, fd: FormData): Promise<ActionState> {
   try {
     const user = await authed()
-    const { from, to } = z.object({ from: isoDate, to: isoDate }).parse(formObject(fd))
-    const result = await syncMeliAds({ from, to })
+    // Always backfill the whole window the ML keeps (syncMeliAds clamps it to ~90 days up to today),
+    // so switching the page filter afterwards never shows a partial Ads total.
+    const result = await syncMeliAds({ from: '2000-01-01', to: '2999-12-31' })
     await logAudit({ user, action: 'ads.sync', entityType: 'advertising_metrics', newValue: result })
     revalidatePath(PATH)
     const money = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-    const clamped = result.window.from !== from ? ' (o ML guarda só os últimos 90 dias)' : ''
+    const br = (iso: string) => iso.split('-').reverse().join('/')
     return {
       ok: true,
-      message: `Ads lidos: ${money(result.total)} em ${result.days} ${result.days === 1 ? 'dia' : 'dias'}${
-        result.roas ? ` · ROAS ${result.roas.toFixed(2).replace('.', ',')}x` : ''
-      }${clamped}.`,
+      message: `Ads lidos de ${br(result.window.from)} a ${br(result.window.to)}: ${money(result.total)} em ${result.days} ${
+        result.days === 1 ? 'dia com gasto' : 'dias com gasto'
+      }${result.roas ? ` · ROAS ${result.roas.toFixed(2).replace('.', ',')}x` : ''}.`,
     }
   } catch (error) {
     return failure(error)
