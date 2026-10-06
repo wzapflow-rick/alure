@@ -6,14 +6,24 @@ import { cn } from '@/lib/utils'
 const pct = (value: number, base: number) =>
   base > 0 ? `${((value / base) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'
 
-type Tone = 'neutral' | 'positive' | 'critical' | 'attention'
+type Tone = 'sales' | 'costs' | 'ship' | 'margin' | 'ads' | 'loss' | 'profit'
+
+const TONE_BG: Record<Tone, string> = {
+  sales: 'bg-kpi-sales',
+  costs: 'bg-kpi-costs',
+  ship: 'bg-kpi-ship',
+  margin: 'bg-kpi-margin',
+  ads: 'bg-kpi-ads',
+  loss: 'bg-kpi-loss',
+  profit: 'bg-kpi-profit',
+}
 
 function Card({
   icon: Icon,
   label,
   value,
   share,
-  tone = 'neutral',
+  tone,
   details,
   note,
 }: {
@@ -21,47 +31,41 @@ function Card({
   label: string
   value: string
   share?: string
-  tone?: Tone
+  tone: Tone
   details?: { label: string; value: string }[]
   note?: React.ReactNode
 }) {
   return (
     <article
       className={cn(
-        'flex min-w-0 flex-col gap-3 rounded-xl border bg-surface p-4 sm:p-5',
-        tone === 'positive' && 'border-positive/30',
-        tone === 'critical' && 'border-critical/40 bg-critical/5',
-        tone === 'neutral' && 'border-border',
-        tone === 'attention' && 'border-border',
+        'relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl p-4 text-kpi-foreground shadow-sm sm:p-5',
+        TONE_BG[tone],
       )}
     >
-      <header className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
+      <Icon
+        className="pointer-events-none absolute -right-3 -bottom-4 size-24 text-kpi-foreground/10"
+        strokeWidth={1.5}
+        aria-hidden
+      />
+      <header className="relative flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{label}</h3>
+        <Icon className="size-4 text-kpi-foreground/90" aria-hidden />
       </header>
-      <p className="flex flex-wrap items-baseline gap-x-2">
-        <span
-          className={cn(
-            'text-2xl font-semibold tracking-tight tabular',
-            tone === 'positive' && 'text-positive',
-            tone === 'critical' && 'text-critical',
-          )}
-        >
-          {value}
-        </span>
-        {share ? <span className="text-xs text-muted-foreground tabular">{share} das vendas</span> : null}
+      <p className="relative flex flex-wrap items-baseline gap-x-2">
+        <span className="text-2xl font-bold tracking-tight tabular">{value}</span>
+        {share ? <span className="text-xs text-kpi-foreground/80 tabular">({share} das vendas)</span> : null}
       </p>
       {details?.length ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 sm:grid-cols-3">
+        <dl className="relative grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
           {details.map((d) => (
             <div key={d.label} className="flex min-w-0 flex-col gap-0.5">
-              <dt className="text-[11px] text-muted-foreground">{d.label}</dt>
+              <dt className="text-[11px] font-semibold text-kpi-foreground/85">{d.label}</dt>
               <dd className="truncate text-sm tabular">{d.value}</dd>
             </div>
           ))}
         </dl>
       ) : null}
-      {note ? <p className="text-xs leading-relaxed text-muted-foreground">{note}</p> : null}
+      {note ? <p className="relative text-xs leading-relaxed text-kpi-foreground/80">{note}</p> : null}
     </article>
   )
 }
@@ -109,7 +113,7 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
 export function ProfitSummary({ report }: { report: ProfitReport }) {
   const s = report.summary
   const costsTotal = s.cost + s.fees + s.taxes
-  const afterAdsTone: Tone = !s.adsApplies ? 'neutral' : s.afterAds < 0 ? 'critical' : 'positive'
+  const afterAdsTone: Tone = !s.adsApplies ? 'ship' : s.afterAds < 0 ? 'loss' : 'profit'
 
   return (
     <div className="flex flex-col gap-4">
@@ -118,6 +122,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={ShoppingBag}
           label="Vendas válidas"
           value={formatBRL(s.sales)}
+          tone="sales"
           details={[
             { label: 'Total', value: formatBRL(s.gross) },
             { label: 'Cancelado', value: formatBRL(s.cancelled) },
@@ -129,6 +134,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Tarifas e custos"
           value={formatBRL(costsTotal)}
           share={pct(costsTotal, s.sales)}
+          tone="costs"
           details={[
             { label: 'Custo produto', value: formatBRL(s.cost) },
             { label: 'Tarifas ML', value: formatBRL(s.fees) },
@@ -145,6 +151,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Frete pago"
           value={formatBRL(s.sellerShip)}
           share={pct(s.sellerShip, s.sales)}
+          tone="ship"
           details={[
             { label: 'Vendedor', value: formatBRL(s.sellerShip) },
             { label: 'Comprador', value: formatBRL(s.buyerShip) },
@@ -156,7 +163,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Margem de contribuição"
           value={formatBRL(s.contribution)}
           share={pct(s.contribution, s.sales)}
-          tone={s.contribution < 0 ? 'critical' : 'neutral'}
+          tone={s.contribution < 0 ? 'loss' : 'margin'}
           note="Vendas − custo − tarifas − impostos − frete."
         />
         <Card
@@ -164,6 +171,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Publicidade"
           value={s.adsApplies ? formatBRL(s.ads) : '—'}
           share={s.adsApplies ? pct(s.ads, s.sales) : undefined}
+          tone="ads"
           note={
             !s.adsApplies
               ? 'Ads não são separáveis por produto; limpe a busca para ver o total.'

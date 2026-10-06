@@ -12,13 +12,13 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#07090d',
-  colorScheme: 'dark',
+  themeColor: '#f3f4f7',
+  colorScheme: 'light',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={`dark bg-background ${inter.variable} ${geistMono.variable}`}>
+    <html lang="pt-BR" className={`bg-background ${inter.variable} ${geistMono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">{children}</body>
     </html>
   )

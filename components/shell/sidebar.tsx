@@ -75,12 +75,23 @@ function NavLink({ item, pathname, badge }: { item: NavItem; pathname: string; b
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex h-11 items-center gap-3 rounded-md px-3 text-sm transition-colors duration-150 md:h-8 md:gap-2.5 md:px-2.5 md:text-[13px]',
-        active ? 'bg-surface-2 text-foreground' : 'text-muted-foreground hover:bg-surface hover:text-foreground',
+        active
+          ? 'bg-primary font-medium text-primary-foreground shadow-sm'
+          : 'text-foreground/80 hover:bg-surface hover:text-foreground',
       )}
     >
-      <Icon className={cn('size-4 shrink-0 md:size-[15px]', active ? 'text-primary' : 'text-muted-foreground/70')} aria-hidden />
+      <Icon className={cn('size-4 shrink-0 md:size-[15px]', active ? 'text-primary-foreground' : 'text-muted-foreground')} aria-hidden />
       <span>{item.label}</span>
-      {badge ? <span className="ml-auto text-xs text-attention tabular">{badge}</span> : null}
+      {badge ? (
+        <span
+          className={cn(
+            'ml-auto rounded-full px-1.5 text-xs tabular',
+            active ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-attention/10 text-attention',
+          )}
+        >
+          {badge}
+        </span>
+      ) : null}
     </Link>
   )
 }
@@ -193,8 +204,8 @@ export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts
 
       {open ? (
         <div className="fixed inset-0 z-40 md:hidden" id="mobile-nav" role="dialog" aria-modal="true" aria-label="Menu">
-          <button type="button" aria-label="Fechar menu" onClick={() => setOpen(false)} className="absolute inset-0 animate-fade bg-background/70 backdrop-blur-sm" />
-          <div className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs animate-rise flex-col border-r border-border bg-background">
+          <button type="button" aria-label="Fechar menu" onClick={() => setOpen(false)} className="absolute inset-0 animate-fade bg-foreground/30 backdrop-blur-sm" />
+          <div className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs animate-rise flex-col border-r border-border bg-sidebar">
             <div className="flex h-14 items-center justify-between px-5">
               <Brand />
               <button
@@ -217,7 +228,7 @@ export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts
         </div>
       ) : null}
 
-      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-background md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-sidebar md:flex">
         <div className="px-5 pt-6 pb-5">
           <Brand />
         </div>

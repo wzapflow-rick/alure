@@ -15,7 +15,7 @@ export default async function SignInPage() {
   if (await getSessionUser()) redirect('/')
 
   return (
-    <main className="flex min-h-dvh bg-brand-ink text-foreground">
+    <main className="brand-dark flex min-h-dvh bg-brand-ink text-foreground">
       <BrandPanel />
 
       <section className="flex min-h-dvh flex-1 flex-col bg-brand-ink px-6 py-10 sm:px-10 md:w-[55%] md:flex-none lg:w-[45%]">
