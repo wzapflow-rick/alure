@@ -18,6 +18,7 @@ import {
   Settings,
   Sparkles,
   Target,
+  Wallet,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -34,6 +35,7 @@ const GROUPS: { label: string | null; items: NavItem[] }[] = [
     items: [
       { href: '/prioridades', label: 'Prioridades', icon: Target },
       { href: '/oportunidades', label: 'Oportunidades', icon: Compass },
+      { href: '/lucratividade', label: 'Lucratividade', icon: Wallet },
     ],
   },
   {

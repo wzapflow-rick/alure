@@ -316,6 +316,15 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
       await rebuildSalesFromOrders(client, marketplaceId, adapter.code, range)
     })
 
+    if (adapter.code === 'mercado_livre') {
+      try {
+        const { syncSellerShipping } = await import('@/lib/profit/shipping')
+        await syncSellerShipping(undefined, 150)
+      } catch (error) {
+        console.error('[alure] frete por pedido não lido:', (error as Error).message)
+      }
+    }
+
     let warning: string | null = null
     try {
       const metrics = await adapter.fetchDailyMetrics(range)
