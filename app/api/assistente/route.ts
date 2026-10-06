@@ -32,20 +32,64 @@ import {
   searchConversations,
 } from '@/lib/assistant/store'
 
+import {
+  ATTACHMENT_LIMITS,
+  BINARY_MEDIA_TYPES,
+  documentToPrompt,
+  type DocumentData,
+} from '@/lib/assistant/attachments'
 import { prepareModel, recordUsage } from '@/lib/ai/orchestrator'
 import { describeAIError } from '@/lib/ai/user-error'
 import { refreshTodayIfStale, type FreshnessResult } from '@/lib/sync/freshen'
 
 export const maxDuration = 60
 
+const textPartSchema = z.object({ type: z.literal('text'), text: z.string() })
+const filePartSchema = z.object({
+  type: z.literal('file'),
+  mediaType: z.enum(BINARY_MEDIA_TYPES),
+  filename: z.string().max(200).optional(),
+  url: z.string().startsWith('data:').max(Math.ceil(ATTACHMENT_LIMITS.maxBinaryBytes * 1.4)),
+})
+const documentPartSchema = z.object({
+  type: z.literal('data-document'),
+  data: z.object({
+    name: z.string().min(1).max(200),
+    kind: z.enum(['planilha', 'texto', 'documento']),
+    text: z.string().min(1).max(ATTACHMENT_LIMITS.maxTextChars),
+    truncated: z.boolean(),
+  }),
+})
+
 const bodySchema = z.object({
   id: z.string().regex(UUID_RE),
   message: z.object({
     id: z.string().min(1).max(100),
     role: z.literal('user'),
-    parts: z.array(z.object({ type: z.string(), text: z.string().optional() })).min(1),
+    parts: z
+      .array(z.discriminatedUnion('type', [textPartSchema, filePartSchema, documentPartSchema]))
+      .min(1)
+      .max(ATTACHMENT_LIMITS.maxFiles + 2),
   }),
 })
+
+function withoutBinary(message: UIMessage): UIMessage {
+  return {
+    ...message,
+    parts: message.parts.map((p) => (p.type === 'file' ? { ...p, url: '' } : p)),
+  }
+}
+
+function forModel(message: UIMessage): UIMessage {
+  return {
+    ...message,
+    parts: message.parts.map((p) =>
+      p.type === 'file' && !p.url
+        ? { type: 'text', text: `[Anexo enviado antes: ${p.filename ?? 'arquivo'} — o conteúdo não foi reenviado]` }
+        : p,
+    ),
+  }
+}
 
 const INSTRUCTIONS = `Você é o assistente do ALURE OS, sistema de decisão de uma loja de metais sanitários Deca em marketplaces (Mercado Livre, Shopee).
 
@@ -64,6 +108,19 @@ MEMÓRIA
 FRESCOR DOS DADOS
 - Ao citar números de hoje, informe o horário de kpis_hoje.lastSynced (fuso de São Paulo).
 - Se atualizacao_vendas_hoje indicar sincronização incompleta ou falha, diga isso antes dos números e não afirme que "não houve vendas".
+
+DOCUMENTOS ANEXADOS
+- O usuário pode anexar planilhas, PDFs, prints e textos. Leia o conteúdo inteiro antes de responder.
+- Cruze o documento com o banco sempre que fizer sentido (SKU, anúncio, preço, vendas): consulte as ferramentas e aponte divergências.
+- Deixe claro o que veio do documento e o que veio do banco. Se o anexo foi cortado no limite, avise.
+- Se o documento trouxer um dado durável (ex.: custo de fornecedor, investimento em Ads por campanha), ofereça registrar na memória.
+
+FORMATO DA RESPOSTA (markdown, renderizado na tela)
+- Abra com 1–2 frases de diagnóstico. Depois organize em seções curtas com "### Título".
+- Use listas com "-" para itens e "1." só para passos em ordem. No máximo 1 nível de sub-lista.
+- Use **negrito** só nos números e conclusões-chave, nunca em frases inteiras.
+- Compare 3+ itens (SKUs, campanhas, canais) em tabela markdown com colunas curtas.
+- Feche com "### Próximo passo" quando houver ação clara. Sem preâmbulos, sem repetir a pergunta.
 
 ESTILO
 - Português do Brasil, direto e curto. Diferencie fato (dado do banco) de hipótese (marque como hipótese).
@@ -341,12 +398,21 @@ export async function POST(req: Request) {
   const { id: conversationId, message } = parsed.data
 
   const text = message.parts
-    .map((p) => (p.type === 'text' ? (p.text ?? '') : ''))
+    .map((p) => (p.type === 'text' ? p.text : ''))
     .join('\n')
     .trim()
     .slice(0, 8000)
-  if (!text) return new Response('Mensagem vazia', { status: 400 })
-  const userMessage: UIMessage = { id: message.id, role: 'user', parts: [{ type: 'text', text }] }
+  const attachments = message.parts.filter((p) => p.type !== 'text')
+  if (!text && !attachments.length) return new Response('Mensagem vazia', { status: 400 })
+  const binaryChars = attachments.reduce((sum, p) => sum + (p.type === 'file' ? p.url.length : 0), 0)
+  if (binaryChars > ATTACHMENT_LIMITS.maxBinaryBytes * 1.4) {
+    return new Response('PDFs e imagens passam de 3 MB nesta mensagem. Envie em partes.', { status: 413 })
+  }
+  const userMessage: UIMessage = {
+    id: message.id,
+    role: 'user',
+    parts: [...attachments, ...(text ? [{ type: 'text' as const, text }] : [])],
+  }
 
   const prepared = prepareModel('ASSISTANT_QUERY')
   if (!prepared) {
@@ -363,12 +429,13 @@ export async function POST(req: Request) {
         status: 503,
       })
     }
-    if (!(await ensureConversation(user.id, conversationId, text))) {
+    const title = text || `Análise: ${attachments.map((p) => (p.type === 'file' ? p.filename : p.data.name)).join(', ')}`
+    if (!(await ensureConversation(user.id, conversationId, title))) {
       return new Response('Conversa não encontrada', { status: 404 })
     }
     const history = (await getConversationMessages(user.id, conversationId, 40)) ?? []
-    await saveMessage(conversationId, userMessage)
-    messages = [...history.filter((m) => m.id !== userMessage.id), userMessage]
+    await saveMessage(conversationId, withoutBinary(userMessage))
+    messages = [...history.filter((m) => m.id !== userMessage.id).map(forModel), userMessage]
     const freshness = await safe(refreshTodayIfStale, [])
     dbContext = await buildDatabaseContext(user, conversationId, freshness)
   } catch (err) {
@@ -379,7 +446,10 @@ export async function POST(req: Request) {
   const result = streamText({
     model: prepared.model,
     instructions: `${INSTRUCTIONS}\n\n${dbContext}`,
-    messages: await convertToModelMessages(messages),
+    messages: await convertToModelMessages(messages, {
+      convertDataPart: (part) =>
+        part.type === 'data-document' ? { type: 'text', text: documentToPrompt(part.data as DocumentData) } : undefined,
+    }),
     stopWhen: isStepCount(8),
     tools: buildTools(user, conversationId),
     onFinish: async (event) => {
