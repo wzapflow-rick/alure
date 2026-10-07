@@ -3,7 +3,9 @@ import { Field, Input, Panel } from '@/components/ui/primitives'
 import { ActionForm, SubmitButton } from '@/components/forms/action-form'
 import { saveProtectionSettings } from '@/lib/actions/broadcast'
 import { loadSettings } from '@/lib/broadcast/queries'
-import { WEEKDAY_LABELS, effectiveDailyCap } from '@/lib/broadcast/settings'
+import { WEEKDAY_LABELS, baseDailyCap, effectiveDailyCap, hourlyCeiling, quarantineActive } from '@/lib/broadcast/settings'
+import { listIncidents, replyTrackingActive } from '@/lib/broadcast/health'
+import { formatDateTime } from '@/lib/broadcast/labels'
 
 export const metadata: Metadata = { title: 'Proteções · Disparos' }
 
@@ -30,8 +32,10 @@ function Group({ title, description, children }: { title: string; description: s
 
 export default async function ProtectionsPage() {
   const s = await loadSettings()
+  const [incidents, tracking] = await Promise.all([listIncidents(5), replyTrackingActive().catch(() => false)])
   const cap = effectiveDailyCap(s)
-  const perHourMax = Math.min(s.hourly_cap, Math.floor(3600 / s.min_delay_s))
+  const perHourMax = Math.min(hourlyCeiling(s, cap), Math.floor(3600 / s.min_delay_s))
+  const quarantined = quarantineActive(s)
 
   return (
     <Panel title="Barreiras de proteção" action={<span className="text-xs text-muted-foreground tabular">Hoje: até {cap} envios · no máximo {perHourMax}/h</span>}>
@@ -62,14 +66,86 @@ export default async function ProtectionsPage() {
           <NumberField name="contact_cooldown_days" label="Intervalo por contato" unit="dias" value={s.contact_cooldown_days} min={1} max={365} hint="A mesma pessoa não recebe de novo antes disso." />
         </Group>
 
-        <Group title="Aquecimento do número" description="Números novos ou parados há tempo começam com poucos envios por dia, e o limite sobe aos poucos. É a barreira mais importante para quem nunca disparou.">
+        <Group
+          title="Aquecimento por mérito"
+          description="O limite não sobe mais pelo calendário. Ele só aumenta depois de um dia que usou pelo menos 70% do limite, teve respostas e nenhum incidente. Cada aumento é de no máximo 25%. Dias com poucas respostas ou muitos descadastros seguram ou reduzem o limite. O total de cada dia varia entre 85% e 100% do limite, para não repetir o mesmo número sempre."
+        >
           <label className="flex items-center gap-2.5 text-sm sm:col-span-2 lg:col-span-3">
             <input type="checkbox" name="warmup_enabled" defaultChecked={s.warmup_enabled} className="accent-primary" />
             Aquecimento ativo
-            {s.warmup_started_on ? <span className="text-xs text-muted-foreground">· dia {(s.warmup_days ?? 0) + 1}, limite de hoje: {cap}</span> : null}
+            <span className="text-xs text-muted-foreground tabular">· limite conquistado: {baseDailyCap(s)} · hoje: até {cap}</span>
           </label>
-          <NumberField name="warmup_start" label="Envios no primeiro dia" value={s.warmup_start} min={5} max={100} />
-          <NumberField name="warmup_step" label="Aumento por dia" value={s.warmup_step} min={0} max={50} />
+          <NumberField name="warmup_start" label="Limite inicial" value={s.warmup_start} min={5} max={100} />
+          <NumberField name="warmup_step" label="Aumento máximo por dia saudável" value={s.warmup_step} min={0} max={50} />
+          <NumberField
+            name="min_reply_rate"
+            label="Taxa mínima de resposta"
+            unit="%"
+            value={s.min_reply_rate}
+            min={0}
+            max={50}
+            hint="Abaixo disso o limite não sobe, e a campanha pausa após 30 envios sem retorno. 0 desliga."
+          />
+          {!tracking ? (
+            <p className="text-xs leading-relaxed text-attention sm:col-span-2 lg:col-span-3">
+              Nenhuma resposta registrada nos últimos 30 dias. Confira se o webhook da Evolution envia o evento MESSAGES_UPSERT para /api/webhooks/evolution. Sem ele, a regra de respostas fica desligada.
+            </p>
+          ) : null}
+        </Group>
+
+        <Group
+          title="Incidentes e quarentena"
+          description="Se o WhatsApp desconectar ou a Evolution der sinal de bloqueio, isso conta como incidente: o limite é cortado, tudo pausa e o número fica em quarentena. Voltar a enviar logo depois de reconectar é o que transforma um aviso em banimento."
+        >
+          <NumberField name="quarantine_hours" label="Quarentena" unit="horas" value={s.quarantine_hours} min={24} max={336} hint="Mínimo 24h. Recomendado 72h." />
+          <NumberField name="incident_cut_pct" label="Corte do limite" unit="%" value={s.incident_cut_pct} min={25} max={90} hint="Quanto o limite cai a cada incidente." />
+          <div className="flex flex-col gap-2 text-xs leading-relaxed sm:col-span-2 lg:col-span-3">
+            <p className={quarantined ? 'font-medium text-critical' : 'text-muted-foreground'}>
+              {quarantined ? `Em quarentena até ${formatDateTime(s.quarantine_until)}. Nenhum envio sai até lá.` : 'Sem quarentena ativa.'}
+            </p>
+            {incidents.length ? (
+              <ul className="flex flex-col gap-1.5 text-muted-foreground">
+                {incidents.map((i) => (
+                  <li key={i.id} className="tabular">
+                    {formatDateTime(i.created_at)} · {i.kind === 'desconexao' ? 'Desconexão' : 'Sinal de bloqueio'} · limite {i.ramp_before} → {i.ramp_after}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </Group>
+
+        <Group
+          title="Listas frias"
+          description="Contato frio é quem nunca respondeu e nunca comprou (por exemplo, os da Prospecção). Eles geram a maioria das denúncias, então recebem um tratamento mais lento e restrito."
+        >
+          <NumberField
+            name="cold_share_pct"
+            label="Parte do dia para frios"
+            unit="%"
+            value={s.cold_share_pct}
+            min={10}
+            max={100}
+            hint="Do limite diário. O resto fica para quem já conversou com a ALURE."
+          />
+          <NumberField
+            name="cold_delay_pct"
+            label="Intervalo extra para frios"
+            unit="%"
+            value={s.cold_delay_pct}
+            min={0}
+            max={300}
+            hint="Somado ao intervalo normal entre mensagens."
+          />
+          <label className="flex items-start gap-2.5 text-sm sm:col-span-2 lg:col-span-3">
+            <input type="checkbox" name="cold_require_two_step" defaultChecked={s.cold_require_two_step} className="mt-0.5 accent-primary" />
+            <span>
+              Frios só em campanhas de duas etapas
+              <span className="block text-xs text-muted-foreground">
+                Em campanha comum, o contato frio é pulado. A primeira mensagem para um desconhecido nunca leva link.
+              </span>
+            </span>
+          </label>
         </Group>
 
         <Group title="Janela de envio" description="Só envia em horário comercial (horário de Brasília) e nos dias marcados.">
@@ -107,6 +183,7 @@ export default async function ProtectionsPage() {
         <div className="flex flex-col gap-1 border-t border-border px-5 py-4">
           <ul className="mb-3 flex flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
             <li>Sempre ativo, sem configuração: uma campanha por vez, ordem aleatória de contatos, variação diferente da anterior a cada envio, conferência do número antes de enviar e nada de reenviar mensagem interrompida.</li>
+            <li>Nenhum texto idêntico é enviado duas vezes em 14 dias. Respostas negativas (&quot;spam&quot;, &quot;não quero&quot;, &quot;quem é você&quot;) bloqueiam o contato para sempre. Antes de mandar a oferta, a mensagem do contato é marcada como lida.</li>
           </ul>
           <SubmitButton className="self-start">Salvar proteções</SubmitButton>
         </div>

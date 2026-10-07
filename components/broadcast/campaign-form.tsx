@@ -13,8 +13,21 @@ const STARTERS = [
   '{saudacao}! {Passando para avisar|Queria te mostrar|Lembrei de você}: {temos|estamos com} {novidades|uma seleção nova} da Deca no catálogo da ALURE.\n\n{Se tiver algum projeto em andamento|Se estiver precisando de alguma peça|Caso precise de algo}, {é só pedir por aqui|me chama aqui mesmo|respondo por aqui}.\n\n{link}',
 ]
 
+const COLD_OPENERS = [
+  '{saudacao}, {primeiro_nome}! {Tudo bem?|Tudo certo?} Aqui é {o|a equipe} da ALURE, {de metais e acabamentos Deca|trabalhamos com metais Deca}. {Vocês|Você} {costuma|costumam} {comprar|usar} {torneiras e misturadores|metais e acabamentos} {para obras|em projetos}?',
+  '{Oi|Olá|Opa}, {primeiro_nome}, {tudo bem|tudo certo}? {Sou|Falo} da ALURE. {Posso te fazer uma pergunta rápida?|Rapidinho:} {vocês estão com alguma obra ou reforma|tem algum projeto de banheiro ou cozinha} {em andamento|rolando agora}?',
+  '{saudacao}! {Aqui é da ALURE|Tudo bem? ALURE aqui}, {fornecemos|trabalhamos com} metais e acabamentos Deca {para profissionais|para lojas e obras}. {Faz sentido eu te mandar|Posso te enviar} {nosso catálogo|uma seleção com preços}?',
+]
+
+const OFFERS = [
+  '{Perfeito|Ótimo|Que bom}, {primeiro_nome}! {Segue|Aqui está} {nosso catálogo|a seleção} com {preços para projeto|condições especiais}: {link}\n\n{Qualquer dúvida é só me chamar.|Se quiser, já monto um orçamento.}',
+  '{Show|Beleza|Combinado}! {Separei|Deixo aqui} o {catálogo|link} {com os metais e acabamentos|da ALURE}: {link}\n\n{Me fala o que você precisa que eu te ajudo.|Se tiver uma lista de itens, me manda que eu cotoo.}',
+]
+
 export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags: { tag: string; n: number }[] }) {
-  const [templates, setTemplates] = useState<string[]>(STARTERS)
+  const [twoStep, setTwoStep] = useState(true)
+  const [templates, setTemplates] = useState<string[]>(COLD_OPENERS)
+  const [offers, setOffers] = useState<string[]>(OFFERS)
   const [link, setLink] = useState(defaultLink)
   const [appendLink, setAppendLink] = useState(true)
   const [footer, setFooter] = useState(true)
@@ -22,20 +35,28 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
 
   const combos = templates.reduce((sum, t) => sum + (t.trim() ? countCombinations(t) : 0), 0)
   const filled = templates.filter((t) => t.trim()).length
+  const openerHasLink = twoStep && templates.some((t) => /\{link\}|https?:\/\//i.test(t))
+
+  function toggleTwoStep(on: boolean) {
+    setTwoStep(on)
+    setTemplates(on ? COLD_OPENERS : STARTERS)
+    setPreview(null)
+  }
 
   function generatePreview() {
     const valid = templates.filter((t) => t.trim())
     if (!valid.length) return
-    const template = valid[Math.floor(Math.random() * valid.length)]
-    setPreview(
-      renderMessage(template, {
-        name: 'Maria Souza',
-        hour: new Date().getHours(),
-        link: link || null,
-        appendLink,
-        optOutFooter: footer,
-      }),
-    )
+    const ctx = { name: 'Maria Souza', hour: new Date().getHours(), link: link || null }
+    const opener = renderMessage(valid[Math.floor(Math.random() * valid.length)], {
+      ...ctx,
+      link: twoStep ? null : ctx.link,
+      appendLink: !twoStep && appendLink,
+      optOutFooter: footer,
+    })
+    const validOffers = offers.filter((t) => t.trim())
+    if (!twoStep || !validOffers.length) return setPreview(opener)
+    const offer = renderMessage(validOffers[Math.floor(Math.random() * validOffers.length)], { ...ctx, appendLink, optOutFooter: false })
+    setPreview(`${opener}\n\n— se responder —\n\n${offer}`)
   }
 
   return (
@@ -62,9 +83,27 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
         </Field>
       </div>
 
+      <label className="flex items-start gap-3 rounded-lg border border-border bg-surface-2 p-4 text-sm">
+        <input
+          type="checkbox"
+          name="two_step"
+          checked={twoStep}
+          onChange={(e) => toggleTwoStep(e.target.checked)}
+          className="mt-0.5 accent-primary"
+        />
+        <span className="flex flex-col gap-1">
+          <span className="font-medium">Duas etapas (recomendado para listas frias)</span>
+          <span className="text-xs leading-relaxed text-muted-foreground">
+            A primeira mensagem é curta, sem link, e termina com uma pergunta. A oferta com o link só vai, minutos depois,
+            para quem responder. Quem não tem interesse simplesmente ignora em vez de denunciar. Contatos da Prospecção
+            só recebem campanhas nesse modo.
+          </span>
+        </span>
+      </label>
+
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-sm font-medium">Variações da mensagem</h3>
+          <h3 className="text-sm font-medium">{twoStep ? 'Variações da abertura (sem link)' : 'Variações da mensagem'}</h3>
           <span className={`text-xs tabular ${filled >= 3 && combos >= 10 ? 'text-positive' : 'text-attention'}`}>
             {filled} variações · {combos.toLocaleString('pt-BR')} textos possíveis (mínimo: 3 variações e 10 textos)
           </span>
@@ -105,12 +144,59 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
             <Plus className="size-4" aria-hidden /> Adicionar variação
           </Button>
         ) : null}
+        {openerHasLink ? (
+          <p role="alert" className="text-xs text-critical">
+            Tire o link da abertura: em duas etapas ele vai só na oferta.
+          </p>
+        ) : null}
       </div>
+
+      {twoStep ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-medium">Variações da oferta (para quem responder)</h3>
+            <p className="text-xs text-muted-foreground">
+              Enviada de 1,5 a 6 minutos depois da resposta, com {'{link}'}. Quem responde &quot;não quero&quot;, &quot;spam&quot; ou
+              algo negativo é bloqueado e não recebe a oferta.
+            </p>
+          </div>
+          {offers.map((t, i) => (
+            <div key={i} className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor={`offer-${i}`} className="text-xs font-medium text-muted-foreground">
+                  Oferta {i + 1}
+                </label>
+                {offers.length > 2 ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setOffers((list) => list.filter((_, j) => j !== i))}>
+                    <Trash2 className="size-3.5" aria-hidden /> Remover
+                  </Button>
+                ) : null}
+              </div>
+              <Textarea
+                id={`offer-${i}`}
+                name="followup_templates"
+                value={t}
+                maxLength={1000}
+                rows={5}
+                onChange={(e) => setOffers((list) => list.map((x, j) => (j === i ? e.target.value : x)))}
+                className="font-mono text-[13px]"
+              />
+            </div>
+          ))}
+          {offers.length < 6 ? (
+            <Button type="button" size="sm" className="self-start" onClick={() => setOffers((list) => [...list, ''])}>
+              <Plus className="size-4" aria-hidden /> Adicionar oferta
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-3">
         <label className="flex items-start gap-2.5 text-sm">
           <input type="checkbox" name="append_link" checked={appendLink} onChange={(e) => setAppendLink(e.target.checked)} className="mt-0.5 accent-primary" />
-          <span>Incluir o link no final quando a variação não tiver {'{link}'}</span>
+          <span>
+            Incluir o link no final quando {twoStep ? 'a oferta' : 'a variação'} não tiver {'{link}'}
+          </span>
         </label>
         <label className="flex items-start gap-2.5 text-sm">
           <input type="checkbox" name="opt_out_footer" checked={footer} onChange={(e) => setFooter(e.target.checked)} className="mt-0.5 accent-primary" />

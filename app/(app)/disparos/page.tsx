@@ -9,7 +9,7 @@ import { setPauseAll } from '@/lib/actions/broadcast'
 import { insideWindow, localClock } from '@/lib/broadcast/engine'
 import { CAMPAIGN_STATUS, EVENT_LABEL, PAUSE_REASON, formatDateTime, relativeMinutes } from '@/lib/broadcast/labels'
 import { overview } from '@/lib/broadcast/queries'
-import { WEEKDAY_LABELS } from '@/lib/broadcast/settings'
+import { WEEKDAY_LABELS, quarantineActive } from '@/lib/broadcast/settings'
 import { connectionState, evolutionConfig } from '@/lib/notify/evolution'
 
 export const metadata: Metadata = { title: 'Disparos' }
@@ -18,7 +18,8 @@ const CONNECTION_LABEL = { open: 'Conectado', connecting: 'Conectando', close: '
 
 export default async function BroadcastPage() {
   const [data, connection] = await Promise.all([overview(), connectionState()])
-  const { settings: s, counts, dailyCap, contacts, campaigns, events } = data
+  const { settings: s, counts, dailyCap, hourlyCap, contacts, campaigns, events } = data
+  const quarantined = quarantineActive(s)
   const configured = Boolean(evolutionConfig())
   const running = campaigns.find((c) => c.status === 'running')
   const tickAge = relativeMinutes(s.last_tick_at)
@@ -33,15 +34,26 @@ export default async function BroadcastPage() {
       <Panel>
         <div className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">
-            {s.paused_all ? (
+            {s.paused_all || quarantined ? (
               <ShieldAlert className="mt-0.5 size-5 shrink-0 text-critical" aria-hidden />
             ) : (
               <ShieldCheck className="mt-0.5 size-5 shrink-0 text-positive" aria-hidden />
             )}
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium">
-                {s.paused_all ? 'Todos os disparos estão pausados' : running ? `Enviando: ${running.name}` : 'Pronto para enviar'}
+                {quarantined
+                  ? `Número em quarentena até ${formatDateTime(s.quarantine_until)}`
+                  : s.paused_all
+                    ? 'Todos os disparos estão pausados'
+                    : running
+                      ? `Enviando: ${running.name}`
+                      : 'Pronto para enviar'}
               </p>
+              {quarantined ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Houve um incidente de conexão. Nenhum envio sai até o fim do prazo, e o limite volta reduzido.
+                </p>
+              ) : null}
               <p className="text-xs leading-relaxed text-muted-foreground">
                 Janela {s.window_start_hour}h–{s.window_end_hour}h · {s.weekdays.map((d) => WEEKDAY_LABELS[d]).join(', ')}
                 {inWindow ? ' · dentro da janela agora' : ' · fora da janela agora (nada é enviado)'}
@@ -76,10 +88,10 @@ export default async function BroadcastPage() {
         <Stat
           label="Enviadas hoje"
           value={`${counts.today}/${dailyCap}`}
-          hint={warmingUp ? `Aquecendo: dia ${(s.warmup_days ?? 0) + 1}` : 'Limite diário'}
+          hint={warmingUp ? 'Aquecimento por mérito' : 'Limite diário'}
           tone={counts.today >= dailyCap ? 'attention' : undefined}
         />
-        <Stat label="Última hora" value={`${counts.hour}/${s.hourly_cap}`} hint="Limite por hora" tone={counts.hour >= s.hourly_cap ? 'attention' : undefined} />
+        <Stat label="Última hora" value={`${counts.hour}/${hourlyCap}`} hint="Distribuído ao longo do dia" tone={counts.hour >= hourlyCap ? 'attention' : undefined} />
         <Stat label="Contatos elegíveis" value={contacts.eligible} hint={`${contacts.total} na base`} />
         <Stat label="Descadastrados" value={contacts.opted_out} hint={`${contacts.invalid} sem WhatsApp`} />
       </div>

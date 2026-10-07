@@ -15,6 +15,8 @@ export const PAUSE_REASON: Record<string, string> = {
   taxa_de_erro: 'Taxa de erro alta',
   lista_ruim: 'Muitos números sem WhatsApp',
   risco_bloqueio: 'Sinal de bloqueio: parada de emergência',
+  incidente: 'Incidente no número: quarentena',
+  baixa_resposta: 'Poucas respostas: lista fria',
 }
 
 export const SKIP_REASON: Record<string, string> = {
@@ -22,7 +24,16 @@ export const SKIP_REASON: Record<string, string> = {
   contato_recente: 'Contatado recentemente',
   sem_whatsapp: 'Sem WhatsApp',
   cancelada: 'Campanha cancelada',
+  frio_sem_duas_etapas: 'Contato frio em campanha sem duas etapas',
   outro: 'Outro',
+}
+
+export const FOLLOWUP_STATUS: Record<string, { label: string; tone: Tone }> = {
+  pending: { label: 'Oferta agendada', tone: 'info' },
+  sending: { label: 'Enviando oferta', tone: 'info' },
+  sent: { label: 'Oferta enviada', tone: 'positive' },
+  failed: { label: 'Oferta falhou', tone: 'critical' },
+  skipped: { label: 'Sem oferta (recusou)', tone: 'neutral' },
 }
 
 export const EVENT_LABEL: Record<string, string> = {
@@ -38,6 +49,10 @@ export const EVENT_LABEL: Record<string, string> = {
   retomada_geral: 'Disparos liberados',
   protecoes_alteradas: 'Proteções alteradas',
   descadastro: 'Descadastro',
+  aquecimento: 'Aquecimento avaliado',
+  incidente: 'Incidente no número',
+  resposta_hostil: 'Resposta hostil: contato bloqueado',
+  cota_fria: 'Cota de contatos frios atingida',
 }
 
 export const MESSAGE_STATUS: Record<string, { label: string; tone: Tone }> = {

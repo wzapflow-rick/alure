@@ -7,7 +7,7 @@ import { pool } from '@/lib/db'
 import { authed, failure, type ActionState } from '@/lib/actions/shared'
 import { logEvent, rand, localClock } from '@/lib/broadcast/engine'
 import { loadSettings } from '@/lib/broadcast/queries'
-import { settingsSchema } from '@/lib/broadcast/settings'
+import { quarantineActive, settingsSchema } from '@/lib/broadcast/settings'
 import { countCombinations, normalizePhone, parseContactList, renderMessage } from '@/lib/broadcast/text'
 import { sendDirectText } from '@/lib/notify/evolution'
 
@@ -30,6 +30,7 @@ export async function saveProtectionSettings(_: ActionState, fd: FormData): Prom
       weekdays: fd.getAll('weekdays'),
       warmup_enabled: fd.get('warmup_enabled') === 'on',
       typing_enabled: fd.get('typing_enabled') === 'on',
+      cold_require_two_step: fd.get('cold_require_two_step') === 'on',
       opt_out_keywords: String(raw.opt_out_keywords ?? '').split(/[,\n]/).map((k) => k.trim()).filter(Boolean),
     })
     await pool.query(
@@ -38,13 +39,17 @@ export async function saveProtectionSettings(_: ActionState, fd: FormData): Prom
          long_break_chance = $7, hourly_cap = $8, daily_cap = $9, window_start_hour = $10, window_end_hour = $11,
          weekdays = $12::smallint[], warmup_enabled = $13, warmup_start = $14, warmup_step = $15, contact_cooldown_days = $16,
          max_consecutive_failures = $17, max_error_rate = $18, max_invalid_rate = $19, typing_enabled = $20,
-         opt_out_keywords = $21::text[], updated_at = now()
+         opt_out_keywords = $21::text[], quarantine_hours = $22, incident_cut_pct = $23, min_reply_rate = $24,
+         cold_share_pct = $25, cold_delay_pct = $26, cold_require_two_step = $27,
+         ramp_cap = LEAST(COALESCE(ramp_cap, $14), $9), updated_at = now()
        WHERE id = 1`,
       [
         v.min_delay_s, v.max_delay_s, v.batch_min, v.batch_max, v.batch_pause_min_s, v.batch_pause_max_s,
         v.long_break_chance, v.hourly_cap, v.daily_cap, v.window_start_hour, v.window_end_hour,
         v.weekdays, v.warmup_enabled, v.warmup_start, v.warmup_step, v.contact_cooldown_days,
         v.max_consecutive_failures, v.max_error_rate, v.max_invalid_rate, v.typing_enabled, v.opt_out_keywords,
+        v.quarantine_hours, v.incident_cut_pct, v.min_reply_rate,
+        v.cold_share_pct, v.cold_delay_pct, v.cold_require_two_step,
       ],
     )
     await logEvent(null, 'protecoes_alteradas', 'Barreiras de proteção atualizadas.')
@@ -153,6 +158,23 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
       return { ok: false, message: 'Use sorteios como {Oi|Olá|Opa} para gerar pelo menos 10 textos possíveis.' }
     }
     const appendLink = fd.get('append_link') === 'on'
+    const twoStep = fd.get('two_step') === 'on'
+    const followups = fd
+      .getAll('followup_templates')
+      .map((t) => String(t).trim().slice(0, 1000))
+      .filter(Boolean)
+    if (twoStep) {
+      if (v.templates.some((t) => /\{link\}|https?:\/\//i.test(t))) {
+        return { ok: false, message: 'Em duas etapas, a abertura não pode ter link. O link vai só na oferta, para quem responder.' }
+      }
+      if (v.templates.some((t) => t.length > 400)) {
+        return { ok: false, message: 'Abertura para lista fria deve ser curta (até 400 caracteres por variação).' }
+      }
+      if (new Set(followups.map((t) => t.toLowerCase())).size < 2) {
+        return { ok: false, message: 'Escreva pelo menos 2 variações da oferta (a mensagem que vai para quem responder).' }
+      }
+      if (followups.some((t) => /\{link\}/.test(t)) && !v.link_url) return { ok: false, message: 'Informe o link usado na oferta.' }
+    }
     if (appendLink && !v.link_url) return { ok: false, message: 'Informe o link do catálogo.' }
     const linkUrl = v.link_url ? v.link_url : null
 
@@ -162,9 +184,9 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
     try {
       await client.query('BEGIN')
       const { rows } = await client.query<{ id: string }>(
-        `INSERT INTO broadcast_campaigns (name, templates, link_url, append_link, opt_out_footer, tag_filter, batch_target)
-         VALUES ($1, $2::text[], $3, $4, $5, $6, $7) RETURNING id::text`,
-        [v.name, v.templates, linkUrl, appendLink, fd.get('opt_out_footer') === 'on', tag, rand(s.batch_min, s.batch_max)],
+        `INSERT INTO broadcast_campaigns (name, templates, link_url, append_link, opt_out_footer, tag_filter, batch_target, two_step, followup_templates)
+         VALUES ($1, $2::text[], $3, $4, $5, $6, $7, $8, $9::text[]) RETURNING id::text`,
+        [v.name, v.templates, linkUrl, appendLink, fd.get('opt_out_footer') === 'on', tag, rand(s.batch_min, s.batch_max), twoStep, twoStep ? followups : []],
       )
       id = rows[0].id
       const audience = await client.query(
@@ -191,7 +213,13 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
     } finally {
       client.release()
     }
-    await logEvent(id, 'criada', `Campanha criada com ${v.templates.length} variações.`)
+    await logEvent(
+      id,
+      'criada',
+      twoStep
+        ? `Campanha em duas etapas criada: ${v.templates.length} aberturas e ${followups.length} ofertas.`
+        : `Campanha criada com ${v.templates.length} variações.`,
+    )
   } catch (e) {
     return failure(e)
   }
@@ -202,6 +230,7 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
 async function startOrResume(id: string) {
   const s = await loadSettings()
   if (s.paused_all) throw new Error('PAUSE_ALL')
+  if (quarantineActive(s)) throw new Error('QUARANTINE')
   await pool.query(
     `UPDATE broadcast_settings SET warmup_started_on = COALESCE(warmup_started_on, (now() AT TIME ZONE 'America/Sao_Paulo')::date) WHERE id = 1`,
   )
@@ -232,6 +261,7 @@ export async function startCampaign(_: ActionState, fd: FormData): Promise<Actio
   } catch (e) {
     const m = (e as Error).message
     if (m === 'PAUSE_ALL') return { ok: false, message: 'Os disparos estão pausados globalmente. Libere no painel primeiro.' }
+    if (m === 'QUARANTINE') return { ok: false, message: 'O número está em quarentena depois de um incidente. Os envios voltam sozinhos ao fim do prazo, com limite reduzido.' }
     if (m === 'ONE_RUNNING') return { ok: false, message: 'Já existe uma campanha enviando. Só uma por vez, para proteger o número.' }
     return failure(e)
   }

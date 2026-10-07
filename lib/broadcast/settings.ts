@@ -33,7 +33,13 @@ export const settingsSchema = z
     max_consecutive_failures: int('Falhas seguidas', 1, 10),
     max_error_rate: int('Taxa de erro', 5, 50),
     max_invalid_rate: int('Números inválidos', 10, 60),
+    quarantine_hours: int('Quarentena após incidente', 24, 336),
+    incident_cut_pct: int('Corte do limite após incidente', 25, 90),
+    min_reply_rate: int('Taxa mínima de resposta', 0, 50),
     typing_enabled: z.boolean(),
+    cold_share_pct: int('Cota de contatos frios', 10, 100),
+    cold_delay_pct: int('Intervalo extra para frios', 0, 200),
+    cold_require_two_step: z.boolean(),
     opt_out_keywords: z.array(z.string().trim().toLowerCase().min(2).max(30)).min(1, 'Informe ao menos uma palavra de descadastro.'),
   })
   .superRefine((v, ctx) => {
@@ -54,13 +60,43 @@ export type BroadcastSettings = ProtectionSettings & {
   warmup_started_on: string | null
   warmup_days: number | null
   last_tick_at: string | null
+  ramp_cap: number | null
+  ramp_evaluated_on: string | null
+  quarantine_until: string | null
+  last_state: string | null
 }
 
 export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-/** Daily ceiling after warm-up: starts low and grows by `warmup_step` per day until `daily_cap`. */
-export function effectiveDailyCap(s: Pick<BroadcastSettings, 'daily_cap' | 'warmup_enabled' | 'warmup_start' | 'warmup_step' | 'warmup_days'>) {
+type CapInput = Pick<BroadcastSettings, 'daily_cap' | 'warmup_enabled' | 'warmup_start' | 'ramp_cap'>
+
+/** Limit earned by the number: grows only after healthy days and is cut on incidents. */
+export function baseDailyCap(s: CapInput) {
   if (!s.warmup_enabled) return s.daily_cap
-  const days = Math.max(0, s.warmup_days ?? 0)
-  return Math.min(s.daily_cap, s.warmup_start + s.warmup_step * days)
+  return Math.min(s.daily_cap, s.ramp_cap ?? s.warmup_start)
+}
+
+export function todayKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(date)
+}
+
+/** Same total every day is a machine pattern; each day uses 85–100% of the limit, fixed for that date. */
+function dailyJitter(day: string) {
+  let h = 0
+  for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return 0.85 + ((h % 1000) / 1000) * 0.15
+}
+
+export function effectiveDailyCap(s: CapInput, day = todayKey()) {
+  return Math.max(1, Math.floor(baseDailyCap(s) * dailyJitter(day)))
+}
+
+/** Spreads the day across the window instead of burning the whole limit in two hours. */
+export function hourlyCeiling(s: Pick<BroadcastSettings, 'hourly_cap' | 'window_start_hour' | 'window_end_hour'>, dailyCap: number) {
+  const hours = Math.max(1, s.window_end_hour - s.window_start_hour)
+  return Math.min(s.hourly_cap, Math.max(3, Math.ceil((dailyCap / hours) * 1.6)))
+}
+
+export function quarantineActive(s: Pick<BroadcastSettings, 'quarantine_until'>, now = Date.now()) {
+  return Boolean(s.quarantine_until && new Date(s.quarantine_until).getTime() > now)
 }
