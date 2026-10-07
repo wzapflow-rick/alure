@@ -7,7 +7,7 @@ import { pool } from '@/lib/db'
 import { authed, failure, type ActionState } from '@/lib/actions/shared'
 import { logEvent, rand, localClock } from '@/lib/broadcast/engine'
 import { loadSettings } from '@/lib/broadcast/queries'
-import { settingsSchema } from '@/lib/broadcast/settings'
+import { quarantineActive, settingsSchema } from '@/lib/broadcast/settings'
 import { countCombinations, normalizePhone, parseContactList, renderMessage } from '@/lib/broadcast/text'
 import { sendDirectText } from '@/lib/notify/evolution'
 
@@ -38,13 +38,15 @@ export async function saveProtectionSettings(_: ActionState, fd: FormData): Prom
          long_break_chance = $7, hourly_cap = $8, daily_cap = $9, window_start_hour = $10, window_end_hour = $11,
          weekdays = $12::smallint[], warmup_enabled = $13, warmup_start = $14, warmup_step = $15, contact_cooldown_days = $16,
          max_consecutive_failures = $17, max_error_rate = $18, max_invalid_rate = $19, typing_enabled = $20,
-         opt_out_keywords = $21::text[], updated_at = now()
+         opt_out_keywords = $21::text[], quarantine_hours = $22, incident_cut_pct = $23, min_reply_rate = $24,
+         ramp_cap = LEAST(COALESCE(ramp_cap, $14), $9), updated_at = now()
        WHERE id = 1`,
       [
         v.min_delay_s, v.max_delay_s, v.batch_min, v.batch_max, v.batch_pause_min_s, v.batch_pause_max_s,
         v.long_break_chance, v.hourly_cap, v.daily_cap, v.window_start_hour, v.window_end_hour,
         v.weekdays, v.warmup_enabled, v.warmup_start, v.warmup_step, v.contact_cooldown_days,
         v.max_consecutive_failures, v.max_error_rate, v.max_invalid_rate, v.typing_enabled, v.opt_out_keywords,
+        v.quarantine_hours, v.incident_cut_pct, v.min_reply_rate,
       ],
     )
     await logEvent(null, 'protecoes_alteradas', 'Barreiras de proteção atualizadas.')
@@ -202,6 +204,7 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
 async function startOrResume(id: string) {
   const s = await loadSettings()
   if (s.paused_all) throw new Error('PAUSE_ALL')
+  if (quarantineActive(s)) throw new Error('QUARANTINE')
   await pool.query(
     `UPDATE broadcast_settings SET warmup_started_on = COALESCE(warmup_started_on, (now() AT TIME ZONE 'America/Sao_Paulo')::date) WHERE id = 1`,
   )
@@ -232,6 +235,7 @@ export async function startCampaign(_: ActionState, fd: FormData): Promise<Actio
   } catch (e) {
     const m = (e as Error).message
     if (m === 'PAUSE_ALL') return { ok: false, message: 'Os disparos estão pausados globalmente. Libere no painel primeiro.' }
+    if (m === 'QUARANTINE') return { ok: false, message: 'O número está em quarentena depois de um incidente. Os envios voltam sozinhos ao fim do prazo, com limite reduzido.' }
     if (m === 'ONE_RUNNING') return { ok: false, message: 'Já existe uma campanha enviando. Só uma por vez, para proteger o número.' }
     return failure(e)
   }

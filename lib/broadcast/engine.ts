@@ -2,7 +2,8 @@ import 'server-only'
 import { pool } from '@/lib/db'
 import { checkWhatsAppNumbers, connectionState, EvolutionApiError, evolutionConfig, sendDirectText } from '@/lib/notify/evolution'
 import { broadcastSchemaReady, loadSettings, sendCounts, TZ } from '@/lib/broadcast/queries'
-import { effectiveDailyCap, type BroadcastSettings } from '@/lib/broadcast/settings'
+import { effectiveDailyCap, hourlyCeiling, quarantineActive, type BroadcastSettings } from '@/lib/broadcast/settings'
+import { evaluateRamp, noteConnectionState, recordIncident, replyTrackingActive } from '@/lib/broadcast/health'
 import { renderMessage } from '@/lib/broadcast/text'
 
 /** One tick runs at most this long; the scheduler calls again every minute. */
@@ -47,6 +48,32 @@ async function emergencyStop(campaignId: string, detail: string) {
   await pool.query(`UPDATE broadcast_settings SET paused_all = true, updated_at = now() WHERE id = 1`)
   await pauseCampaign(campaignId, 'risco_bloqueio', detail)
   await logEvent(campaignId, 'parada_emergencia', detail)
+  await recordIncident('sinal_bloqueio', detail).catch((e) => console.error('[disparos] incident:', (e as Error).message))
+}
+
+/**
+ * Cold lists are what get numbers flagged: many messages that nobody answers.
+ * Only enforced once the webhook has proven it delivers replies.
+ */
+async function replyGuard(campaign: Campaign, s: BroadcastSettings) {
+  if (s.min_reply_rate <= 0) return true
+  const { rows } = await pool.query<{ sent: number; replied: number }>(
+    `SELECT COUNT(*)::int AS sent, COUNT(*) FILTER (WHERE replied_at IS NOT NULL)::int AS replied
+       FROM broadcast_messages
+      WHERE campaign_id = $1 AND status = 'sent'
+        AND sent_at < now() - interval '2 hours' AND sent_at > now() - interval '3 days'`,
+    [campaign.id],
+  )
+  const r = rows[0]
+  if (!r || r.sent < 30) return true
+  if ((r.replied / r.sent) * 100 >= s.min_reply_rate) return true
+  if (!(await replyTrackingActive())) return true
+  await pauseCampaign(
+    campaign.id,
+    'baixa_resposta',
+    `Só ${r.replied} de ${r.sent} contatos responderam (mínimo ${s.min_reply_rate}%). Mensagem sem resposta em massa é o principal motivo de queda do número. Troque a lista ou a abordagem.`,
+  )
+  return false
 }
 
 type Campaign = {
@@ -109,6 +136,7 @@ async function qualityGuard(campaign: Campaign, s: BroadcastSettings) {
 async function step(): Promise<Step> {
   const s = await loadSettings()
   if (s.paused_all) return { kind: 'stop', reason: 'paused_all' }
+  if (quarantineActive(s)) return { kind: 'stop', reason: 'quarantine' }
   if (!insideWindow(s)) return { kind: 'stop', reason: 'outside_window' }
 
   const { rows: campaigns } = await pool.query<Campaign>(
@@ -122,10 +150,16 @@ async function step(): Promise<Step> {
     return { kind: 'wait', until: campaign.next_send_at.getTime() }
   }
 
+  const ramp = await evaluateRamp(s).catch((e) => {
+    console.error('[disparos] ramp:', (e as Error).message)
+    return null
+  })
+  if (ramp !== null) s.ramp_cap = ramp
+
   const counts = await sendCounts()
   const dailyCap = effectiveDailyCap(s)
   if (counts.today >= dailyCap) return { kind: 'stop', reason: 'daily_cap' }
-  if (counts.hour >= s.hourly_cap) {
+  if (counts.hour >= hourlyCeiling(s, dailyCap)) {
     await pool.query(`UPDATE broadcast_campaigns SET next_send_at = now() + make_interval(secs => $2) WHERE id = $1`, [
       campaign.id,
       rand(300, 900),
@@ -134,6 +168,9 @@ async function step(): Promise<Step> {
   }
 
   const state = await connectionState()
+  if (state !== 'unknown') {
+    await noteConnectionState(state, 'verificação antes do envio').catch((e) => console.error('[disparos] state:', (e as Error).message))
+  }
   if (state !== 'open') {
     await pauseCampaign(campaign.id, 'whatsapp_desconectado', `Instância com estado "${state}". Reconecte o WhatsApp na Evolution antes de retomar.`)
     return { kind: 'stop', reason: 'disconnected' }
@@ -250,6 +287,7 @@ async function step(): Promise<Step> {
       WHERE id = $1`,
     [campaign.id, nextBatchSent, batchTarget, variant, delay],
   )
+  if (!(await replyGuard(campaign, s))) return { kind: 'stop', reason: 'low_replies' }
   return { kind: 'sent' }
 }
 

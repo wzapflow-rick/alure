@@ -15,6 +15,8 @@ export const PAUSE_REASON: Record<string, string> = {
   taxa_de_erro: 'Taxa de erro alta',
   lista_ruim: 'Muitos números sem WhatsApp',
   risco_bloqueio: 'Sinal de bloqueio: parada de emergência',
+  incidente: 'Incidente no número: quarentena',
+  baixa_resposta: 'Poucas respostas: lista fria',
 }
 
 export const SKIP_REASON: Record<string, string> = {
@@ -38,6 +40,8 @@ export const EVENT_LABEL: Record<string, string> = {
   retomada_geral: 'Disparos liberados',
   protecoes_alteradas: 'Proteções alteradas',
   descadastro: 'Descadastro',
+  aquecimento: 'Aquecimento avaliado',
+  incidente: 'Incidente no número',
 }
 
 export const MESSAGE_STATUS: Record<string, { label: string; tone: Tone }> = {

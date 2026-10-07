@@ -1,6 +1,6 @@
 import 'server-only'
 import { pool } from '@/lib/db'
-import { effectiveDailyCap, type BroadcastSettings } from '@/lib/broadcast/settings'
+import { effectiveDailyCap, hourlyCeiling, type BroadcastSettings } from '@/lib/broadcast/settings'
 
 export const TZ = 'America/Sao_Paulo'
 
@@ -10,19 +10,26 @@ export async function broadcastSchemaReady() {
 }
 
 export async function loadSettings(): Promise<BroadcastSettings> {
+  // to_jsonb keeps this working before db/018 runs: missing columns just come back undefined.
   const { rows } = await pool.query(
-    `SELECT *, warmup_started_on::text AS warmup_started_on,
-            ((now() AT TIME ZONE $1)::date - warmup_started_on) AS warmup_days,
-            last_tick_at::text AS last_tick_at
-       FROM broadcast_settings WHERE id = 1`,
+    `SELECT to_jsonb(b) AS j, ((now() AT TIME ZONE $1)::date - b.warmup_started_on) AS warmup_days
+       FROM broadcast_settings b WHERE id = 1`,
     [TZ],
   )
   const r = rows[0]
   if (!r) throw new Error('Configuração de disparos ausente. Rode db/013_disparos.sql.')
+  const j = r.j as Record<string, unknown>
   return {
-    ...r,
-    weekdays: (r.weekdays as number[]).map(Number),
+    ...j,
+    weekdays: (j.weekdays as number[]).map(Number),
     warmup_days: r.warmup_days === null ? null : Number(r.warmup_days),
+    ramp_cap: j.ramp_cap == null ? null : Number(j.ramp_cap),
+    ramp_evaluated_on: (j.ramp_evaluated_on as string) ?? null,
+    quarantine_until: (j.quarantine_until as string) ?? null,
+    last_state: (j.last_state as string) ?? null,
+    quarantine_hours: Number(j.quarantine_hours ?? 72),
+    incident_cut_pct: Number(j.incident_cut_pct ?? 50),
+    min_reply_rate: Number(j.min_reply_rate ?? 5),
   } as BroadcastSettings
 }
 
@@ -168,5 +175,6 @@ export async function overview() {
     listCampaigns(),
     listEvents(null, 10),
   ])
-  return { settings, counts, dailyCap: effectiveDailyCap(settings), contacts, campaigns, events }
+  const dailyCap = effectiveDailyCap(settings)
+  return { settings, counts, dailyCap, hourlyCap: hourlyCeiling(settings, dailyCap), contacts, campaigns, events }
 }

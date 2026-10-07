@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { isCronAuthorized } from '@/lib/cron-auth'
 import { pool } from '@/lib/db'
 import { logEvent } from '@/lib/broadcast/engine'
+import { noteConnectionState } from '@/lib/broadcast/health'
 
 type Upsert = {
   key?: { remoteJid?: string; fromMe?: boolean }
@@ -20,7 +21,18 @@ export async function POST(request: NextRequest) {
   if (!isCronAuthorized(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const body = (await request.json().catch(() => null)) as { event?: string; data?: Upsert | Upsert[] } | null
-  if (!body?.event || !/messages[._]upsert/i.test(body.event)) return NextResponse.json({ ignored: true })
+  if (!body?.event) return NextResponse.json({ ignored: true })
+
+  // CONNECTION_UPDATE / LOGOUT_INSTANCE: a drop is recorded the moment it happens, even with no campaign running.
+  if (/connection[._]update|logout[._]instance/i.test(body.event)) {
+    const raw = (body.data as { state?: string } | undefined)?.state
+    const state = /logout/i.test(body.event) ? 'close' : raw
+    if (state === 'open' || state === 'close' || state === 'connecting') {
+      await noteConnectionState(state, 'webhook da Evolution').catch((e) => console.error('[disparos] webhook state:', (e as Error).message))
+    }
+    return NextResponse.json({ ok: true, state: state ?? null })
+  }
+  if (!/messages[._]upsert/i.test(body.event)) return NextResponse.json({ ignored: true })
 
   const { rows: cfg } = await pool
     .query<{ keywords: string[] }>(`SELECT opt_out_keywords AS keywords FROM broadcast_settings WHERE id = 1`)
