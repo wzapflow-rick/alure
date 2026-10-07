@@ -174,23 +174,22 @@ export async function addToProspectList(_: ActionState, fd: FormData): Promise<A
       `INSERT INTO prospect_list_items (list_id, prospect_id) SELECT $1, unnest($2::bigint[]) ON CONFLICT DO NOTHING`,
       [listId, ids],
     )
+    const synced = await syncListToContacts(listId)
     refresh()
-    return { ok: true, message: `${rowCount ?? 0} adicionados à lista “${listName}”.` }
+    const sent = synced ? ` ${synced.total} já disponíveis em Disparos com a etiqueta “${synced.tag}”.` : ''
+    return { ok: true, message: `${rowCount ?? 0} adicionados à lista “${listName}”.${sent}` }
   } catch (e) {
     return failure(e)
   }
 }
 
-export async function exportProspectList(_: ActionState, fd: FormData): Promise<ActionState> {
-  try {
-    await authed()
-    const id = idSchema.parse(String(fd.get('id')))
-    const settings = await loadProspectSettings()
-    const { rows: lists } = await pool.query<{ name: string; tag: string }>(`SELECT name, tag FROM prospect_lists WHERE id = $1`, [id])
-    const list = lists[0]
-    if (!list) return { ok: false, message: 'Lista não encontrada.' }
+async function syncListToContacts(id: string) {
+  const settings = await loadProspectSettings()
+  const { rows: lists } = await pool.query<{ name: string; tag: string }>(`SELECT name, tag FROM prospect_lists WHERE id = $1`, [id])
+  const list = lists[0]
+  if (!list) return null
 
-    const { rows } = await pool.query<{ inserted: boolean }>(
+  const { rows } = await pool.query<{ inserted: boolean }>(
       `INSERT INTO broadcast_contacts (phone, name, tags, source, wa_exists, wa_checked_at)
        SELECT DISTINCT ON (COALESCE(p.site_whatsapp, p.phone))
               COALESCE(p.site_whatsapp, p.phone), p.name, ARRAY[$2::text], 'Prospecção: ' || $3,
@@ -206,20 +205,30 @@ export async function exportProspectList(_: ActionState, fd: FormData): Promise<
        RETURNING (xmax = 0) AS inserted`,
       [id, list.tag, list.name, settings.require_whatsapp],
     )
-    if (!rows.length) {
+  if (rows.length) {
+    await pool.query(`UPDATE prospect_lists SET exported_at = now(), exported_count = $2 WHERE id = $1`, [id, rows.length])
+  }
+  return { tag: list.tag, total: rows.length, created: rows.filter((r) => r.inserted).length, requireWhatsapp: settings.require_whatsapp }
+}
+
+export async function exportProspectList(_: ActionState, fd: FormData): Promise<ActionState> {
+  try {
+    await authed()
+    const id = idSchema.parse(String(fd.get('id')))
+    const synced = await syncListToContacts(id)
+    if (!synced) return { ok: false, message: 'Lista não encontrada.' }
+    if (!synced.total) {
       return {
         ok: false,
-        message: settings.require_whatsapp
+        message: synced.requireWhatsapp
           ? 'Nenhum contato com WhatsApp confirmado nesta lista. Rode a verificação primeiro.'
           : 'Nenhum contato com telefone nesta lista.',
       }
     }
-    await pool.query(`UPDATE prospect_lists SET exported_at = now(), exported_count = $2 WHERE id = $1`, [id, rows.length])
-    const created = rows.filter((r) => r.inserted).length
     refresh()
     return {
       ok: true,
-      message: `${rows.length} contatos com a etiqueta “${list.tag}” (${created} novos). Crie a campanha escolhendo essa etiqueta.`,
+      message: `${synced.total} contatos com a etiqueta “${synced.tag}” (${synced.created} novos). Crie a campanha escolhendo essa etiqueta.`,
     }
   } catch (e) {
     return failure(e)
