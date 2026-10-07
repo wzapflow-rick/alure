@@ -21,7 +21,7 @@ export type CategoryDef = { slug: string; label: string; match: RegExp }
 
 /** Ordered by priority: an item lands in the first category whose rule matches. */
 export const CATEGORIES: CategoryDef[] = [
-  { slug: 'reposicao', label: 'Peças de reposição', match: /\b(reparo|refil|cartucho|mecanismo|vedante|vedacao|castanha|arejador|flexivel|engate|sifao|valvula de escoamento)/ },
+  { slug: 'reposicao', label: 'Peças de reposição', match: /\b(pecas? de reposicao|reparo|refil|cartucho|mecanismo|vedante|vedacao|castanha|arejador|flexivel|engate|sifao|valvula de escoamento)/ },
   { slug: 'kits', label: 'Kits e conjuntos', match: /\b(kit|conjunto)\b/ },
   { slug: 'acabamentos', label: 'Acabamentos de registro', match: /\bacabamento/ },
   { slug: 'registros', label: 'Registros e válvulas', match: /\b(registro|valvula|base para|base de)/ },
@@ -77,9 +77,31 @@ function words(text: string) {
     .filter(Boolean)
 }
 
+export function slugify(text: string) {
+  return normalizeText(text)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+export const CUSTOM_CATEGORY_PREFIX = 'c-'
+
+function resolveCategory(item: CatalogItem): { slug: string; label: string } | null {
+  const raw = item.category?.trim()
+  if (raw) {
+    const exact = CATEGORIES.find((c) => normalizeText(c.label) === normalizeText(raw))
+    if (exact) return exact
+  }
+  const base = normalizeText([raw, item.name].filter(Boolean).join(' '))
+  const matched = CATEGORIES.find((c) => c.match.test(base))
+  if (matched) return matched
+  if (raw && normalizeText(raw) !== normalizeText(OTHER_CATEGORY.label)) {
+    return { slug: `${CUSTOM_CATEGORY_PREFIX}${slugify(raw)}`, label: raw }
+  }
+  return null
+}
+
 export function enrichItem(item: CatalogItem): EnrichedItem {
-  const base = normalizeText([item.category, item.name].filter(Boolean).join(' '))
-  const category = CATEGORIES.find((c) => c.match.test(base))
+  const category = resolveCategory(item)
 
   const brandHaystack = normalizeText(item.name)
   const brand = BRAND_PATTERNS.find((b) => b.match.test(brandHaystack))?.label ?? null
@@ -97,7 +119,7 @@ export function enrichItem(item: CatalogItem): EnrichedItem {
     categorySlug: category?.slug ?? OTHER_CATEGORY.slug,
     categoryLabel,
     brand,
-    finishSlug: finish?.slug ?? (rawFinish ? `x-${normalizeText(rawFinish).replace(/\s+/g, '-')}` : null),
+    finishSlug: finish?.slug ?? (rawFinish ? `x-${slugify(rawFinish)}` : null),
     finishLabel,
     searchWords: words([item.name, item.category, categoryLabel, brand, finishLabel].filter(Boolean).join(' ')).map(stem),
     skuCompact: normalizeText(item.sku).replace(/[^a-z0-9]/g, ''),

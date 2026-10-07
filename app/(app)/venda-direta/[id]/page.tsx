@@ -7,14 +7,14 @@ import { InlineAction } from '@/components/forms/action-form'
 import { CatalogItemForm } from '@/components/catalog-admin/item-form'
 import { ImageManager } from '@/components/catalog-admin/image-manager'
 import { deleteCatalogItem } from '@/lib/actions/catalog'
-import { getAdminItem } from '@/lib/catalog/queries'
+import { getAdminItem, getCatalogTaxonomyOptions } from '@/lib/catalog/queries'
 
 export const metadata: Metadata = { title: 'Editar item · Venda direta' }
 
 export default async function EditCatalogItemPage({ params }: { params: Promise<{ id: string }> }) {
   const id = Number((await params).id)
   if (!Number.isInteger(id) || id <= 0) notFound()
-  const item = await getAdminItem(id)
+  const [item, options] = await Promise.all([getAdminItem(id), getCatalogTaxonomyOptions()])
   if (!item) notFound()
 
   return (
@@ -36,7 +36,7 @@ export default async function EditCatalogItemPage({ params }: { params: Promise<
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <Panel title="Dados" className="[&>div]:p-5">
           <div>
-            <CatalogItemForm item={item} />
+            <CatalogItemForm item={item} options={options} />
           </div>
         </Panel>
         <div className="flex flex-col gap-6">

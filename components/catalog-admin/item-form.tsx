@@ -4,6 +4,8 @@ import { ActionForm, SubmitButton } from '@/components/forms/action-form'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { saveCatalogItem } from '@/lib/actions/catalog'
 import type { CatalogAdminItem } from '@/lib/catalog/types'
+import type { CatalogTaxonomyOptions } from '@/lib/catalog/queries'
+import { CreatableSelect } from '@/components/catalog-admin/creatable-select'
 
 type ProductOption = { id: number; sku: string; name: string }
 
@@ -11,7 +13,15 @@ function money(v: number | null | undefined) {
   return v === null || v === undefined ? '' : v.toFixed(2).replace('.', ',')
 }
 
-export function CatalogItemForm({ item, products }: { item?: CatalogAdminItem; products?: ProductOption[] }) {
+export function CatalogItemForm({
+  item,
+  products,
+  options,
+}: {
+  item?: CatalogAdminItem
+  products?: ProductOption[]
+  options: CatalogTaxonomyOptions
+}) {
   return (
     <ActionForm action={saveCatalogItem} className="gap-5">
       {item ? <input type="hidden" name="id" value={item.id} /> : null}
@@ -50,10 +60,26 @@ export function CatalogItemForm({ item, products }: { item?: CatalogAdminItem; p
 
       <div className="grid gap-4 md:grid-cols-3">
         <Field label="Categoria" htmlFor="ci-category" hint="Vira filtro no catálogo.">
-          <Input id="ci-category" name="category" defaultValue={item?.category ?? ''} maxLength={80} placeholder="Misturadores" />
+          <CreatableSelect
+            id="ci-category"
+            name="category"
+            groups={options.categories}
+            defaultValue={item?.category}
+            emptyLabel="Automática (pelo nome)"
+            createLabel="Criar nova categoria"
+            placeholder="Ex.: Lavatórios"
+          />
         </Field>
         <Field label="Acabamento" htmlFor="ci-finish">
-          <Input id="ci-finish" name="finish" defaultValue={item?.finish ?? ''} maxLength={80} placeholder="Cromado" />
+          <CreatableSelect
+            id="ci-finish"
+            name="finish"
+            groups={options.finishes}
+            defaultValue={item?.finish}
+            emptyLabel="Automático (pelo nome)"
+            createLabel="Criar novo acabamento"
+            placeholder="Ex.: Grafite"
+          />
         </Field>
         <Field label="Ordem" htmlFor="ci-order" hint="Menor aparece primeiro.">
           <Input id="ci-order" name="sortOrder" type="number" min={0} defaultValue={item?.sortOrder ?? 0} />

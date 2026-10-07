@@ -1,6 +1,7 @@
 import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import type { CatalogAdminItem, CatalogItem, CatalogOrder, OrderLine, OrderStatus } from '@/lib/catalog/types'
+import { CATEGORIES, FINISHES, normalizeText } from '@/lib/catalog/taxonomy'
 
 type ItemRow = {
   id: string
@@ -101,6 +102,44 @@ export async function getPublishedItem(id: number): Promise<CatalogItem | null> 
 export async function listAdminItems(): Promise<CatalogAdminItem[]> {
   const rows = await query<ItemRow>(`SELECT ${ITEM_COLUMNS} FROM catalog_items ORDER BY sort_order, name`)
   return rows.map(toAdmin)
+}
+
+export type TaxonomyOptionGroup = { label: string; options: string[] }
+export type CatalogTaxonomyOptions = { categories: TaxonomyOptionGroup[]; finishes: TaxonomyOptionGroup[] }
+
+function groupOptions(standard: string[], used: string[], usedLabel: string): TaxonomyOptionGroup[] {
+  const known = new Set(standard.map(normalizeText))
+  const seen = new Set<string>()
+  const extra: string[] = []
+  for (const value of used) {
+    const key = normalizeText(value)
+    if (known.has(key) || seen.has(key)) continue
+    seen.add(key)
+    extra.push(value)
+  }
+  extra.sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  return [{ label: 'Padrão do catálogo', options: standard }, ...(extra.length ? [{ label: usedLabel, options: extra }] : [])]
+}
+
+export async function getCatalogTaxonomyOptions(): Promise<CatalogTaxonomyOptions> {
+  const rows = await query<{ kind: 'category' | 'finish'; value: string }>(
+    `SELECT 'category' AS kind, btrim(category) AS value FROM catalog_items WHERE btrim(coalesce(category, '')) <> ''
+     UNION
+     SELECT 'finish', btrim(finish) FROM catalog_items WHERE btrim(coalesce(finish, '')) <> ''`,
+  )
+  const used = (kind: 'category' | 'finish') => rows.filter((r) => r.kind === kind).map((r) => r.value)
+  return {
+    categories: groupOptions(
+      CATEGORIES.map((c) => c.label),
+      used('category'),
+      'Criadas por você',
+    ),
+    finishes: groupOptions(
+      FINISHES.map((f) => f.label),
+      used('finish'),
+      'Criados por você',
+    ),
+  }
 }
 
 export async function getAdminItem(id: number): Promise<CatalogAdminItem | null> {

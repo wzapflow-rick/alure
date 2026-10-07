@@ -8,7 +8,7 @@ import { ProductTile } from '@/components/catalog/product-tile'
 import { useCatalogFilters } from '@/components/catalog/use-catalog-filters'
 import { trackCatalog } from '@/lib/catalog/analytics'
 import { hasActiveFilters, matchItems, SORT_LABEL, sortItems, type SortKey } from '@/lib/catalog/filters'
-import { CATEGORIES, enrichItem, FINISHES, OTHER_CATEGORY, type EnrichedItem } from '@/lib/catalog/taxonomy'
+import { CATEGORIES, CUSTOM_CATEGORY_PREFIX, enrichItem, FINISHES, OTHER_CATEGORY, type EnrichedItem } from '@/lib/catalog/taxonomy'
 import type { CatalogItem } from '@/lib/catalog/types'
 import { formatBRL } from '@/lib/format'
 
@@ -40,7 +40,13 @@ export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: Cata
   useEffect(() => setVisible(PAGE_SIZE), [filters])
 
   const categoryCards = useMemo<CategoryCard[]>(() => {
-    const defs = [...CATEGORIES, OTHER_CATEGORY]
+    const custom = new Map<string, string>()
+    for (const i of items) if (i.categorySlug.startsWith(CUSTOM_CATEGORY_PREFIX)) custom.set(i.categorySlug, i.categoryLabel)
+    const defs = [
+      ...CATEGORIES,
+      ...[...custom].map(([slug, label]) => ({ slug, label })),
+      OTHER_CATEGORY,
+    ]
     return defs
       .map((def) => {
         const inCat = items.filter((i) => i.categorySlug === def.slug)
