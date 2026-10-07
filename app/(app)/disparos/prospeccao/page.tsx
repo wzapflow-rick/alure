@@ -3,13 +3,11 @@ import { EmptyState, Input, Panel, Section, Stat } from '@/components/ui/primiti
 import { Chips } from '@/components/ui/tab-nav'
 import { ListsPanel } from '@/components/prospect/lists-panel'
 import { ProspectResults } from '@/components/prospect/results'
-import { SearchPanel, VerificationPanel } from '@/components/prospect/search-panels'
+import { SearchPanel } from '@/components/prospect/search-panels'
 import { AutoSubmitSelect } from '@/components/prospect/select-all'
-import { evolutionConfig } from '@/lib/notify/evolution'
 import { FILTER_LABEL } from '@/lib/prospect/labels'
 import {
   PROSPECT_FILTERS,
-  checksToday,
   listProspectLists,
   listProspects,
   listSearches,
@@ -42,15 +40,13 @@ export default async function ProspectingPage({
   const q = params.q ?? ''
 
   const settings = await loadProspectSettings()
-  const [stats, today, searches, prospects, lists] = await Promise.all([
+  const [stats, searches, prospects, lists] = await Promise.all([
     prospectStats(),
-    checksToday(),
     listSearches(),
     listProspects({ searchId, filter, q }),
     listProspectLists(settings.require_whatsapp),
   ])
   const currentSearch = searches.find((s) => s.id === searchId)
-  const pendingHere = searchId ? prospects.filter((p) => p.wa_status === 'pending' || p.wa_status === 'error').length : stats.pending + stats.error
 
   const filterHref = (f: ProspectFilter) => ({
     pathname: '/disparos/prospeccao',
@@ -68,13 +64,6 @@ export default async function ProspectingPage({
 
       <div className="flex flex-col gap-4">
         <SearchPanel configured={Boolean(serpApiKey())} />
-        <VerificationPanel
-          settings={settings}
-          checkedToday={today}
-          pending={pendingHere}
-          searchId={searchId}
-          evolutionReady={Boolean(evolutionConfig())}
-        />
       </div>
 
       <Section title="Resultados" meta={`${prospects.length}${prospects.length === 300 ? '+' : ''}`}>
