@@ -8,7 +8,12 @@ const nextConfig: NextConfig = {
     serverActions: { bodySizeLimit: "10mb" },
   },
   images: {
-    remotePatterns: [{ protocol: "https", hostname: "*.public.blob.vercel-storage.com" }],
+    remotePatterns: [
+      { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
+      // Marketplace thumbnails used as a fallback when a catalog item has no panel photo.
+      { protocol: "https", hostname: "**.mlstatic.com" },
+      { protocol: "https", hostname: "**.susercontent.com" },
+    ],
   },
 };
 

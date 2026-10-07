@@ -47,10 +47,25 @@ export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: Cata
         const pick =
           [...inCat].filter((i) => i.images[0]).sort((a, b) => (salesRank.get(a.id) ?? 1e9) - (salesRank.get(b.id) ?? 1e9))[0] ??
           null
-        return { slug: def.slug, label: def.label, count: inCat.length, image: pick?.images[0] ?? null }
+        const soldWeight = inCat.reduce((sum, i) => {
+          const rank = salesRank.get(i.id)
+          return rank === undefined ? sum : sum + 1 / (rank + 1)
+        }, 0)
+        return { slug: def.slug, label: def.label, count: inCat.length, image: pick?.images[0] ?? null, soldWeight }
       })
       .filter((c) => c.count > 0)
+      .sort((a, b) => {
+        if (a.slug === OTHER_CATEGORY.slug) return 1
+        if (b.slug === OTHER_CATEGORY.slug) return -1
+        return b.soldWeight - a.soldWeight || b.count - a.count
+      })
+      .map(({ soldWeight: _weight, ...card }) => card)
   }, [items, salesRank])
+
+  const mostWanted = useMemo(() => {
+    const byId = new Map(items.map((i) => [i.id, i]))
+    return bestSellerIds.map((id) => byId.get(id)).filter((i): i is EnrichedItem => Boolean(i)).slice(0, BEST_SELLER_BADGES)
+  }, [items, bestSellerIds])
 
   const facets = useMemo(() => {
     const forCategory = countBy(matchItems(items, filters, 'categoria').result, (i) => i.categorySlug)
@@ -192,6 +207,24 @@ export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: Cata
           </aside>
 
           <div className="min-w-0 flex-1">
+            {!active && mostWanted.length >= 4 ? (
+              <section aria-labelledby="mais-procurados-title" className="mb-12">
+                <div className="flex flex-col gap-1 border-b border-border pb-4">
+                  <h2 id="mais-procurados-title" className="text-2xl font-semibold tracking-tight md:text-3xl">
+                    Mais procurados
+                  </h2>
+                  <p className="text-sm text-muted-foreground">Os produtos mais vendidos nos últimos 90 dias.</p>
+                </div>
+                <ul className="-mx-5 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto px-5 pt-6 [scrollbar-width:none] sm:gap-4 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 xl:grid-cols-4 [&::-webkit-scrollbar]:hidden">
+                  {mostWanted.map((item) => (
+                    <li key={item.id} className="w-[46%] shrink-0 snap-start sm:w-[31%] md:w-auto">
+                      <ProductTile item={item} bestSeller />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             <div className="flex flex-col gap-4 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
               <div className="flex flex-col gap-1">
                 <h2 id="produtos-title" className="text-2xl font-semibold tracking-tight md:text-3xl">

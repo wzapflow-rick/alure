@@ -7,6 +7,7 @@ import { dispatchNotifications } from '@/lib/notify/dispatch'
 import { syncRange } from '@/lib/sync/range'
 import { runSync } from '@/lib/sync/ingest'
 import { syncMeliAds } from '@/lib/profit/ads-sync'
+import { syncCatalogFromProducts } from '@/lib/catalog/sync'
 
 export const maxDuration = 300
 
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
     // Re-read a week: the ML revises recent days' Ads cost after the fact.
     results.mercado_livre_ads = await syncMeliAds(syncRange(7)).catch((err: Error) => ({ status: 'error', detail: err.message }))
   }
+  results.catalog = await syncCatalogFromProducts().catch((err: Error) => ({ status: 'error', detail: err.message }))
   if (rows.length) {
     await logAudit({ user: null, action: 'sync.scheduled', entityType: 'sync_jobs', newValue: { range, results } })
   }

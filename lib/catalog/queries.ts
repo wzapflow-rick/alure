@@ -46,14 +46,27 @@ function toAdmin(row: ItemRow): CatalogAdminItem {
   }
 }
 
-/** Public storefront list. Items without a photo are shown with a "Foto em breve" placeholder. */
+/**
+ * Panel photos win; otherwise the linked product's marketplace thumbnail is used,
+ * so auto-synced items aren't all "Foto em breve".
+ */
+const PUBLIC_SELECT = `
+  SELECT ci.id, ci.product_id, ci.sku, ci.name, ci.description, ci.category, ci.finish, ci.price,
+         ci.compare_at_price, ci.published, ci.sort_order,
+         CASE WHEN cardinality(array_remove(ci.images, '')) > 0 THEN array_remove(ci.images, '')
+              WHEN NULLIF(TRIM(p.image), '') IS NOT NULL THEN ARRAY[REGEXP_REPLACE(TRIM(p.image), '^http://', 'https://')]
+              ELSE '{}'::text[] END AS images
+    FROM catalog_items ci
+    LEFT JOIN products p ON p.id = ci.product_id`
+
+function cleanImages(row: ItemRow): ItemRow {
+  return { ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }
+}
+
+/** Public storefront list. Items without any photo are shown with a "Foto em breve" placeholder. */
 export async function listPublishedItems(): Promise<CatalogItem[]> {
-  const rows = await query<ItemRow>(
-    `SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE published ORDER BY sort_order, name`,
-  )
-  return rows
-    .map((row) => ({ ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }))
-    .map(toPublic)
+  const rows = await query<ItemRow>(`${PUBLIC_SELECT} WHERE ci.published ORDER BY ci.sort_order, ci.name`)
+  return rows.map(cleanImages).map(toPublic)
 }
 
 /** Catalog item ids ranked by real marketplace units sold in the last 90 days (linked via product_id). */
@@ -81,8 +94,8 @@ export async function listBestSellerIds(limit = 8): Promise<number[]> {
 }
 
 export async function getPublishedItem(id: number): Promise<CatalogItem | null> {
-  const row = await queryOne<ItemRow>(`SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE id = $1 AND published`, [id])
-  return row ? toPublic(row) : null
+  const row = await queryOne<ItemRow>(`${PUBLIC_SELECT} WHERE ci.id = $1 AND ci.published`, [id])
+  return row ? toPublic(cleanImages(row)) : null
 }
 
 export async function listAdminItems(): Promise<CatalogAdminItem[]> {
