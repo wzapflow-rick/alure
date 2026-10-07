@@ -66,8 +66,26 @@ function cleanImages(row: ItemRow): ItemRow {
 }
 
 /** Public storefront list. Items without any photo are shown with a "Foto em breve" placeholder. */
+const PLAIN_SELECT = `SELECT ${ITEM_COLUMNS} FROM catalog_items ci`
+
+function isMissingColumn(error: unknown) {
+  const code = (error as { code?: string })?.code
+  return code === '42703' || code === '42P01'
+}
+
+/** Falls back to catalog_items alone when the products.image column isn't in this database. */
+async function selectPublic(where: string, params: unknown[] = []): Promise<ItemRow[]> {
+  try {
+    return await query<ItemRow>(`${PUBLIC_SELECT} ${where}`, params)
+  } catch (error) {
+    if (!isMissingColumn(error)) throw error
+    console.error('[alure] catalog image fallback unavailable, using panel photos only:', error)
+    return query<ItemRow>(`${PLAIN_SELECT} ${where}`, params)
+  }
+}
+
 export async function listPublishedItems(): Promise<CatalogItem[]> {
-  const rows = await query<ItemRow>(`${PUBLIC_SELECT} WHERE ci.published ORDER BY ci.sort_order, ci.name`)
+  const rows = await selectPublic(`WHERE ci.published ORDER BY ci.sort_order, ci.name`)
   return rows.map(cleanImages).map(toPublic)
 }
 
@@ -96,7 +114,7 @@ export async function listBestSellerIds(limit = 8): Promise<number[]> {
 }
 
 export async function getPublishedItem(id: number): Promise<CatalogItem | null> {
-  const row = await queryOne<ItemRow>(`${PUBLIC_SELECT} WHERE ci.id = $1 AND ci.published`, [id])
+  const [row] = await selectPublic(`WHERE ci.id = $1 AND ci.published`, [id])
   return row ? toPublic(cleanImages(row)) : null
 }
 
