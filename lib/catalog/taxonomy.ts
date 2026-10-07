@@ -84,15 +84,55 @@ export function slugify(text: string) {
 }
 
 export const CUSTOM_CATEGORY_PREFIX = 'c-'
+export const CUSTOM_FINISH_PREFIX = 'x-'
 
-function resolveCategory(item: CatalogItem): { slug: string; label: string } | null {
+/**
+ * Admin overrides for the built-in categories/finishes: a renamed default keeps
+ * its slug (and automatic name matching) with a new label; a hidden default
+ * stops matching altogether. Serializable so it can cross to client components.
+ */
+export type TaxonomyConfig = {
+  categoryLabels: Record<string, string>
+  hiddenCategories: string[]
+  finishLabels: Record<string, string>
+  hiddenFinishes: string[]
+}
+
+export const EMPTY_TAXONOMY_CONFIG: TaxonomyConfig = {
+  categoryLabels: {},
+  hiddenCategories: [],
+  finishLabels: {},
+  hiddenFinishes: [],
+}
+
+type Resolved = { slug: string; label: string }
+
+function activeDefs<T extends { slug: string; label: string }>(defs: T[], labels: Record<string, string>, hidden: string[]) {
+  return defs.filter((d) => !hidden.includes(d.slug)).map((d) => ({ ...d, original: d.label, label: labels[d.slug] ?? d.label }))
+}
+
+export function activeCategories(config: TaxonomyConfig = EMPTY_TAXONOMY_CONFIG) {
+  return activeDefs(CATEGORIES, config.categoryLabels, config.hiddenCategories)
+}
+
+export function activeFinishes(config: TaxonomyConfig = EMPTY_TAXONOMY_CONFIG) {
+  return activeDefs(FINISHES, config.finishLabels, config.hiddenFinishes)
+}
+
+function exactDef<T extends { label: string; original: string }>(defs: T[], raw: string) {
+  const key = normalizeText(raw)
+  return defs.find((d) => normalizeText(d.label) === key || normalizeText(d.original) === key)
+}
+
+function resolveCategory(item: CatalogItem, config: TaxonomyConfig): Resolved | null {
+  const defs = activeCategories(config)
   const raw = item.category?.trim()
   if (raw) {
-    const exact = CATEGORIES.find((c) => normalizeText(c.label) === normalizeText(raw))
+    const exact = exactDef(defs, raw)
     if (exact) return exact
   }
   const base = normalizeText([raw, item.name].filter(Boolean).join(' '))
-  const matched = CATEGORIES.find((c) => c.match.test(base))
+  const matched = defs.find((c) => c.match.test(base))
   if (matched) return matched
   if (raw && normalizeText(raw) !== normalizeText(OTHER_CATEGORY.label)) {
     return { slug: `${CUSTOM_CATEGORY_PREFIX}${slugify(raw)}`, label: raw }
@@ -100,18 +140,29 @@ function resolveCategory(item: CatalogItem): { slug: string; label: string } | n
   return null
 }
 
-export function enrichItem(item: CatalogItem): EnrichedItem {
-  const category = resolveCategory(item)
+function resolveFinish(item: CatalogItem, config: TaxonomyConfig): Resolved | null {
+  const defs = activeFinishes(config)
+  const raw = item.finish?.trim()
+  if (raw) {
+    const exact = exactDef(defs, raw)
+    if (exact) return exact
+  }
+  const haystack = normalizeText([raw, item.name].filter(Boolean).join(' '))
+  const matched = defs.find((f) => f.match.test(haystack))
+  if (matched) return matched
+  return raw ? { slug: `${CUSTOM_FINISH_PREFIX}${slugify(raw)}`, label: raw } : null
+}
+
+export function enrichItem(item: CatalogItem, config: TaxonomyConfig = EMPTY_TAXONOMY_CONFIG): EnrichedItem {
+  const category = resolveCategory(item, config)
 
   const brandHaystack = normalizeText(item.name)
   const brand = BRAND_PATTERNS.find((b) => b.match.test(brandHaystack))?.label ?? null
 
-  const finishHaystack = normalizeText([item.finish, item.name].filter(Boolean).join(' '))
-  const finish = FINISHES.find((f) => f.match.test(finishHaystack))
-  const rawFinish = item.finish?.trim() || null
+  const finish = resolveFinish(item, config)
 
   const categoryLabel = category?.label ?? OTHER_CATEGORY.label
-  const finishLabel = finish?.label ?? rawFinish
+  const finishLabel = finish?.label ?? null
 
   return {
     ...item,
@@ -119,7 +170,7 @@ export function enrichItem(item: CatalogItem): EnrichedItem {
     categorySlug: category?.slug ?? OTHER_CATEGORY.slug,
     categoryLabel,
     brand,
-    finishSlug: finish?.slug ?? (rawFinish ? `x-${slugify(rawFinish)}` : null),
+    finishSlug: finish?.slug ?? null,
     finishLabel,
     searchWords: words([item.name, item.category, categoryLabel, brand, finishLabel].filter(Boolean).join(' ')).map(stem),
     skuCompact: normalizeText(item.sku).replace(/[^a-z0-9]/g, ''),

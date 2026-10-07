@@ -2,7 +2,8 @@ import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { isDbConfigured } from '@/lib/db'
 import { listBestSellerIds, listPublishedItems } from '@/lib/catalog/queries'
-import { dedupeBySku, CATEGORIES } from '@/lib/catalog/taxonomy'
+import { activeCategories, dedupeBySku, type TaxonomyConfig } from '@/lib/catalog/taxonomy'
+import { getTaxonomyConfig } from '@/lib/catalog/taxonomy-store'
 import { CatalogBrowser } from '@/components/catalog/catalog-browser'
 import { ProCta } from '@/components/catalog/pro-cta'
 import { CatalogHero } from '@/components/catalog/catalog-hero'
@@ -16,7 +17,8 @@ type PageProps = { searchParams: Promise<Record<string, string | string[] | unde
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { categoria } = await searchParams
-  const category = CATEGORIES.find((c) => c.slug === categoria)
+  if (!categoria || !isDbConfigured()) return {}
+  const category = activeCategories(await getTaxonomyConfig()).find((c) => c.slug === categoria)
   if (!category) return {}
   return {
     title: `${category.label} | Catálogo ALURE`,
@@ -24,11 +26,15 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   }
 }
 
-async function loadCatalog(): Promise<{ items: CatalogItem[]; bestSellerIds: number[] } | null> {
+async function loadCatalog(): Promise<{ items: CatalogItem[]; bestSellerIds: number[]; taxonomy: TaxonomyConfig } | null> {
   if (!isDbConfigured()) return null
   try {
-    const [items, bestSellerIds] = await Promise.all([listPublishedItems(), listBestSellerIds(500)])
-    return { items: dedupeBySku(items), bestSellerIds }
+    const [items, bestSellerIds, taxonomy] = await Promise.all([
+      listPublishedItems(),
+      listBestSellerIds(500),
+      getTaxonomyConfig(),
+    ])
+    return { items: dedupeBySku(items), bestSellerIds, taxonomy }
   } catch (error) {
     console.error('[alure] catalog load failed:', error)
     return null
@@ -52,7 +58,7 @@ export default async function CatalogPage() {
         <p className="mx-auto max-w-[1440px] px-5 pt-12 text-muted-foreground md:px-8">Novos produtos em breve.</p>
       ) : (
         <Suspense fallback={<div className="min-h-[60vh]" aria-busy="true" />}>
-          <CatalogBrowser items={catalog.items} bestSellerIds={catalog.bestSellerIds} />
+          <CatalogBrowser items={catalog.items} bestSellerIds={catalog.bestSellerIds} taxonomy={catalog.taxonomy} />
         </Suspense>
       )}
 

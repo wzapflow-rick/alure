@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ExternalLink, Plus, Search } from 'lucide-react'
+import { ExternalLink, Plus, Search, Tags } from 'lucide-react'
 import { Badge } from '@/components/ui/badges'
 import { EmptyState, Input, PageHeader, Panel, buttonVariants } from '@/components/ui/primitives'
 import { Chips } from '@/components/ui/tab-nav'
@@ -50,6 +50,9 @@ export default async function CatalogAdminPage({ searchParams }: { searchParams:
           <div className="flex flex-wrap gap-2">
             <Link href="/catalogo" target="_blank" className={buttonVariants({ size: 'sm' })}>
               <ExternalLink className="size-4" aria-hidden /> Ver catálogo
+            </Link>
+            <Link href="/venda-direta/categorias" className={buttonVariants({ size: 'sm' })}>
+              <Tags className="size-4" aria-hidden /> Categorias
             </Link>
             <Link href="/venda-direta/pedidos" className={buttonVariants({ size: 'sm' })}>
               Pedidos {newOrders ? <Badge tone="attention">{newOrders} novos</Badge> : null}
