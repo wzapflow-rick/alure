@@ -8,7 +8,16 @@ import { ProductTile } from '@/components/catalog/product-tile'
 import { useCatalogFilters } from '@/components/catalog/use-catalog-filters'
 import { trackCatalog } from '@/lib/catalog/analytics'
 import { hasActiveFilters, matchItems, SORT_LABEL, sortItems, type SortKey } from '@/lib/catalog/filters'
-import { CATEGORIES, CUSTOM_CATEGORY_PREFIX, enrichItem, FINISHES, OTHER_CATEGORY, type EnrichedItem } from '@/lib/catalog/taxonomy'
+import {
+  activeCategories,
+  CUSTOM_CATEGORY_PREFIX,
+  EMPTY_TAXONOMY_CONFIG,
+  enrichItem,
+  FINISHES,
+  OTHER_CATEGORY,
+  type EnrichedItem,
+  type TaxonomyConfig,
+} from '@/lib/catalog/taxonomy'
 import type { CatalogItem } from '@/lib/catalog/types'
 import { formatBRL } from '@/lib/format'
 
@@ -25,8 +34,16 @@ function countBy(items: EnrichedItem[], key: (i: EnrichedItem) => string | null)
   return counts
 }
 
-export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: CatalogItem[]; bestSellerIds: number[] }) {
-  const items = useMemo(() => rawItems.map(enrichItem), [rawItems])
+export function CatalogBrowser({
+  items: rawItems,
+  bestSellerIds,
+  taxonomy = EMPTY_TAXONOMY_CONFIG,
+}: {
+  items: CatalogItem[]
+  bestSellerIds: number[]
+  taxonomy?: TaxonomyConfig
+}) {
+  const items = useMemo(() => rawItems.map((item) => enrichItem(item, taxonomy)), [rawItems, taxonomy])
   const salesRank = useMemo(() => new Map(bestSellerIds.map((id, i) => [id, i])), [bestSellerIds])
   const badgeIds = useMemo(() => new Set(bestSellerIds.slice(0, BEST_SELLER_BADGES)), [bestSellerIds])
   const { filters, update, reset } = useCatalogFilters()
@@ -43,7 +60,7 @@ export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: Cata
     const custom = new Map<string, string>()
     for (const i of items) if (i.categorySlug.startsWith(CUSTOM_CATEGORY_PREFIX)) custom.set(i.categorySlug, i.categoryLabel)
     const defs = [
-      ...CATEGORIES,
+      ...activeCategories(taxonomy),
       ...[...custom].map(([slug, label]) => ({ slug, label })),
       OTHER_CATEGORY,
     ]
@@ -66,7 +83,7 @@ export function CatalogBrowser({ items: rawItems, bestSellerIds }: { items: Cata
         return b.soldWeight - a.soldWeight || b.count - a.count
       })
       .map(({ soldWeight: _weight, ...card }) => card)
-  }, [items, salesRank])
+  }, [items, salesRank, taxonomy])
 
   const mostWanted = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]))

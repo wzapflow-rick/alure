@@ -2,6 +2,7 @@ import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import type { CatalogAdminItem, CatalogItem, CatalogOrder, OrderLine, OrderStatus } from '@/lib/catalog/types'
 import { CATEGORIES, FINISHES, normalizeText } from '@/lib/catalog/taxonomy'
+import { listTaxonomyEntries, type TaxonomyKind } from '@/lib/catalog/taxonomy-store'
 
 type ItemRow = {
   id: string
@@ -122,12 +123,23 @@ function groupOptions(standard: string[], used: string[], usedLabel: string): Ta
 }
 
 export async function getCatalogTaxonomyOptions(): Promise<CatalogTaxonomyOptions> {
-  const rows = await query<{ kind: 'category' | 'finish'; value: string }>(
+  const entries = await listTaxonomyEntries()
+
+  if (entries) {
+    const pick = (kind: TaxonomyKind, standard: boolean) =>
+      entries.filter((e) => e.kind === kind && !e.hidden && Boolean(e.defaultSlug) === standard).map((e) => e.label)
+    return {
+      categories: groupOptions(pick('category', true), pick('category', false), 'Criadas por você'),
+      finishes: groupOptions(pick('finish', true), pick('finish', false), 'Criados por você'),
+    }
+  }
+
+  const rows = await query<{ kind: TaxonomyKind; value: string }>(
     `SELECT 'category' AS kind, btrim(category) AS value FROM catalog_items WHERE btrim(coalesce(category, '')) <> ''
      UNION
      SELECT 'finish', btrim(finish) FROM catalog_items WHERE btrim(coalesce(finish, '')) <> ''`,
   )
-  const used = (kind: 'category' | 'finish') => rows.filter((r) => r.kind === kind).map((r) => r.value)
+  const used = (kind: TaxonomyKind) => rows.filter((r) => r.kind === kind).map((r) => r.value)
   return {
     categories: groupOptions(
       CATEGORIES.map((c) => c.label),

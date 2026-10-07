@@ -20,6 +20,24 @@ function revalidateCatalog(id?: number) {
   }
 }
 
+/** Keeps labels created from the item form in the managed list; never blocks the item save. */
+async function registerTaxonomyLabels(category: string | null, finish: string | null) {
+  const entries = [
+    ['category', category],
+    ['finish', finish],
+  ].filter((e): e is [string, string] => Boolean(e[1]))
+  for (const [kind, label] of entries) {
+    try {
+      await query(
+        `INSERT INTO catalog_taxonomy (kind, label, sort_order) VALUES ($1, $2, 1000) ON CONFLICT DO NOTHING`,
+        [kind, label],
+      )
+    } catch (error) {
+      if ((error as { code?: string })?.code !== '42P01') console.error('[alure] taxonomy register failed:', error)
+    }
+  }
+}
+
 const itemSchema = z.object({
   id: z.coerce.number().int().positive().optional(),
   productId: optionalNumber,
@@ -101,6 +119,7 @@ export async function saveCatalogItem(_: ActionState, formData: FormData): Promi
         await logAudit({ user, action: 'catalog.create', entityType: 'catalog_items', entityId: createdId, newValue: input }, client)
       }
     })
+    await registerTaxonomyLabels(input.category, input.finish)
     revalidateCatalog(input.id)
     if (!createdId) return { ok: true, message: 'Item salvo.' }
   } catch (error) {

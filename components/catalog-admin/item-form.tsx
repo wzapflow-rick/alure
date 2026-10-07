@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { ActionForm, SubmitButton } from '@/components/forms/action-form'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { saveCatalogItem } from '@/lib/actions/catalog'
@@ -69,6 +70,9 @@ export function CatalogItemForm({
             createLabel="Criar nova categoria"
             placeholder="Ex.: Lavatórios"
           />
+          <Link href="/venda-direta/categorias" className="w-fit text-xs text-muted-foreground underline hover:text-foreground">
+            Renomear ou excluir
+          </Link>
         </Field>
         <Field label="Acabamento" htmlFor="ci-finish">
           <CreatableSelect
@@ -80,6 +84,9 @@ export function CatalogItemForm({
             createLabel="Criar novo acabamento"
             placeholder="Ex.: Grafite"
           />
+          <Link href="/venda-direta/categorias" className="w-fit text-xs text-muted-foreground underline hover:text-foreground">
+            Renomear ou excluir
+          </Link>
         </Field>
         <Field label="Ordem" htmlFor="ci-order" hint="Menor aparece primeiro.">
           <Input id="ci-order" name="sortOrder" type="number" min={0} defaultValue={item?.sortOrder ?? 0} />
