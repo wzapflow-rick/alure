@@ -43,7 +43,9 @@ export function CategoryStrip({
             href="/catalogo#selecao"
             label="Todos os produtos"
             count={total}
-            image={null}
+            image="/brand/logo-cover.png"
+            imageAlt="ALURE Design & Acabamentos"
+            cover
             selected={active === null}
             onClick={() => onSelect(null)}
           />
@@ -71,6 +73,8 @@ function CategoryLink({
   label,
   count,
   image,
+  imageAlt = '',
+  cover = false,
   selected,
   onClick,
 }: {
@@ -78,6 +82,8 @@ function CategoryLink({
   label: string
   count: number
   image: string | null
+  imageAlt?: string
+  cover?: boolean
   selected: boolean
   onClick: () => void
 }) {
@@ -98,10 +104,13 @@ function CategoryLink({
         {image ? (
           <Image
             src={image}
-            alt=""
+            alt={imageAlt}
             fill
             sizes="(min-width: 1024px) 240px, (min-width: 768px) 22vw, 42vw"
-            className="object-contain p-4 transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+            className={cn(
+              'transition-transform duration-500 ease-out group-hover:scale-[1.04]',
+              cover ? 'object-cover object-center' : 'object-contain p-4',
+            )}
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-primary">
