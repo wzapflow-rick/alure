@@ -53,6 +53,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
         <Stat label="Respostas" value={campaign.replied} hint={`${replyRate}% das enviadas`} tone={replyRate >= 5 ? 'positive' : undefined} />
         <Stat label="Falhas" value={campaign.failed} tone={campaign.failed ? 'critical' : undefined} />
         <Stat label="Puladas" value={campaign.skipped} />
+        {campaign.two_step ? (
+          <Stat label="Ofertas enviadas" value={campaign.offers_sent} hint={campaign.offers_pending ? `${campaign.offers_pending} aguardando` : 'só para quem respondeu'} />
+        ) : null}
       </div>
 
       {campaign.status === 'draft' || campaign.status === 'paused' ? (

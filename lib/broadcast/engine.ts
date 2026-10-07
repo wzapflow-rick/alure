@@ -1,7 +1,7 @@
 import 'server-only'
 import { pool } from '@/lib/db'
-import { checkWhatsAppNumbers, connectionState, EvolutionApiError, evolutionConfig, sendDirectText } from '@/lib/notify/evolution'
-import { broadcastSchemaReady, loadSettings, sendCounts, TZ } from '@/lib/broadcast/queries'
+import { checkWhatsAppNumbers, connectionState, EvolutionApiError, evolutionConfig, markMessageRead, sendDirectText } from '@/lib/notify/evolution'
+import { broadcastSchemaReady, COLD_CONTACT_SQL, coldSchemaReady, loadSettings, sendCounts, TZ } from '@/lib/broadcast/queries'
 import { effectiveDailyCap, hourlyCeiling, quarantineActive, type BroadcastSettings } from '@/lib/broadcast/settings'
 import { evaluateRamp, noteConnectionState, recordIncident, replyTrackingActive } from '@/lib/broadcast/health'
 import { renderMessage } from '@/lib/broadcast/text'
@@ -76,8 +76,115 @@ async function replyGuard(campaign: Campaign, s: BroadcastSettings) {
   return false
 }
 
+type RenderCtx = { name: string | null; link: string | null; appendLink: boolean; optOutFooter: boolean }
+
+/** Identical texts sent to many people is a bulk fingerprint; re-sorts until the text was not sent in the last 14 days. */
+async function renderUnique(templates: string[], ctx: RenderCtx, avoidVariant: number | null) {
+  const all = templates.map((_, i) => i)
+  const choices = all.length > 1 && avoidVariant !== null ? all.filter((i) => i !== avoidVariant) : all
+  let result = { variant: 0, text: '' }
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const variant = choices[Math.floor(Math.random() * choices.length)]
+    result = { variant, text: renderMessage(templates[variant], { ...ctx, hour: localClock().hour }) }
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM broadcast_messages
+        WHERE (md5(rendered) = md5($1) AND sent_at > now() - interval '14 days')
+           OR (md5(followup_rendered) = md5($1) AND followup_sent_at > now() - interval '14 days')
+        LIMIT 1`,
+      [result.text],
+    )
+    if (!rowCount) break
+  }
+  return result
+}
+
+function typingFor(text: string, s: BroadcastSettings, min = 2500, max = 9000) {
+  return s.typing_enabled ? Math.min(max, Math.max(min, text.length * 35)) + rand(0, 1500) : 0
+}
+
+type FollowClaim = {
+  id: string
+  campaign_id: string
+  phone: string
+  name: string | null
+  opted_out: boolean
+  reply_key_id: string | null
+  followup_templates: string[]
+  link_url: string | null
+  append_link: boolean
+}
+
+/**
+ * Second step of a two-step campaign: the offer (with link) goes only to people who answered the opener.
+ * Answering someone who wrote back is the most natural thing a number can do, so it runs before new openers.
+ */
+async function followupStep(s: BroadcastSettings): Promise<Step | null> {
+  await pool.query(
+    `UPDATE broadcast_messages SET followup_status = 'skipped', followup_error = 'Resposta antiga demais; oferta não enviada.'
+      WHERE followup_status = 'pending' AND followup_due_at < now() - interval '48 hours'`,
+  )
+  const { rows } = await pool.query<FollowClaim>(
+    `WITH next AS (
+       SELECT m.id FROM broadcast_messages m JOIN broadcast_campaigns cp ON cp.id = m.campaign_id
+        WHERE m.followup_status = 'pending' AND m.followup_due_at <= now() AND cp.status <> 'cancelled'
+        ORDER BY m.followup_due_at LIMIT 1 FOR UPDATE OF m SKIP LOCKED
+     )
+     UPDATE broadcast_messages m SET followup_status = 'sending'
+       FROM next, broadcast_contacts c, broadcast_campaigns cp
+      WHERE m.id = next.id AND c.id = m.contact_id AND cp.id = m.campaign_id
+     RETURNING m.id::text, m.campaign_id::text, c.phone, c.name, c.opted_out, m.reply_key_id,
+               cp.followup_templates, cp.link_url, cp.append_link`,
+  )
+  const f = rows[0]
+  if (!f) return null
+  if (f.opted_out || !f.followup_templates.length) {
+    await pool.query(`UPDATE broadcast_messages SET followup_status = 'skipped' WHERE id = $1`, [f.id])
+    return { kind: 'skipped' }
+  }
+
+  const state = await connectionState()
+  if (state !== 'open') {
+    await pool.query(`UPDATE broadcast_messages SET followup_status = 'pending' WHERE id = $1`, [f.id])
+    if (state !== 'unknown') await noteConnectionState(state, 'verificação antes da oferta').catch(() => {})
+    return { kind: 'stop', reason: 'disconnected' }
+  }
+
+  if (f.reply_key_id) await markMessageRead(f.phone, f.reply_key_id).catch(() => {})
+  await sleep(rand(1500, 4000))
+
+  const { text } = await renderUnique(
+    f.followup_templates,
+    { name: f.name, link: f.link_url, appendLink: f.append_link, optOutFooter: false },
+    null,
+  )
+  try {
+    await sendDirectText(f.phone, text, { typingMs: typingFor(text, s, 4000, 12000), linkPreview: true })
+  } catch (err) {
+    const message = (err as Error).message.slice(0, 500)
+    await pool.query(`UPDATE broadcast_messages SET followup_status = 'failed', followup_error = $2 WHERE id = $1`, [f.id, message])
+    const status = err instanceof EvolutionApiError ? err.status : 0
+    if (status === 401 || status === 403 || BAN_SIGNAL.test(message)) {
+      await emergencyStop(f.campaign_id, `A Evolution respondeu com sinal de bloqueio/desconexão ao enviar uma oferta: ${message.slice(0, 200)}`)
+      return { kind: 'stop', reason: 'emergency' }
+    }
+    return { kind: 'failed' }
+  }
+  await pool.query(
+    `UPDATE broadcast_messages SET followup_status = 'sent', followup_sent_at = now(), followup_rendered = $2, followup_error = NULL WHERE id = $1`,
+    [f.id, text],
+  )
+  // Keeps a gap before the next opener so the number never fires two messages back to back.
+  await pool.query(
+    `UPDATE broadcast_campaigns SET next_send_at = GREATEST(COALESCE(next_send_at, now()), now() + make_interval(secs => $1))
+      WHERE status = 'running'`,
+    [rand(45, 120)],
+  )
+  return { kind: 'sent' }
+}
+
 type Campaign = {
   id: string
+  two_step: boolean
   templates: string[]
   link_url: string | null
   append_link: boolean
@@ -98,6 +205,7 @@ type Claimed = {
   wa_exists: boolean | null
   wa_fresh: boolean
   recently_sent: boolean
+  cold: boolean
 }
 
 type Step =
@@ -139,8 +247,11 @@ async function step(): Promise<Step> {
   if (quarantineActive(s)) return { kind: 'stop', reason: 'quarantine' }
   if (!insideWindow(s)) return { kind: 'stop', reason: 'outside_window' }
 
+  const followup = await followupStep(s)
+  if (followup) return followup
+
   const { rows: campaigns } = await pool.query<Campaign>(
-    `SELECT id::text, templates, link_url, append_link, opt_out_footer, next_send_at, batch_sent, batch_target,
+    `SELECT id::text, two_step, templates, link_url, append_link, opt_out_footer, next_send_at, batch_sent, batch_target,
             consecutive_failures, last_variant
        FROM broadcast_campaigns WHERE status = 'running' ORDER BY started_at LIMIT 1`,
   )
@@ -176,19 +287,24 @@ async function step(): Promise<Step> {
     return { kind: 'stop', reason: 'disconnected' }
   }
 
+  // Cold contacts never take the whole day: warm ones (who already talked to us) keep the number's reputation up.
+  const coldCap = Math.max(1, Math.floor((dailyCap * s.cold_share_pct) / 100))
+  const allowCold = counts.cold_today < coldCap
+
   const { rows: claimed } = await pool.query<Claimed>(
     `WITH next AS (
-       SELECT id FROM broadcast_messages
-        WHERE campaign_id = $1 AND status = 'pending'
-        ORDER BY position LIMIT 1 FOR UPDATE SKIP LOCKED
+       SELECT m.id FROM broadcast_messages m JOIN broadcast_contacts c ON c.id = m.contact_id
+        WHERE m.campaign_id = $1 AND m.status = 'pending' AND ($4::boolean OR NOT ${COLD_CONTACT_SQL})
+        ORDER BY m.position LIMIT 1 FOR UPDATE OF m SKIP LOCKED
      )
      UPDATE broadcast_messages m SET status = 'sending', attempted_at = now()
        FROM next, broadcast_contacts c
       WHERE m.id = next.id AND c.id = m.contact_id
      RETURNING m.id::text, c.id::text AS contact_id, c.phone, c.name, c.opted_out, c.wa_exists,
                (c.wa_checked_at > now() - make_interval(days => $2)) AS wa_fresh,
-               (c.last_sent_at > now() - make_interval(days => $3)) AS recently_sent`,
-    [campaign.id, NUMBER_CHECK_TTL_DAYS, s.contact_cooldown_days],
+               (c.last_sent_at > now() - make_interval(days => $3)) AS recently_sent,
+               ${COLD_CONTACT_SQL} AS cold`,
+    [campaign.id, NUMBER_CHECK_TTL_DAYS, s.contact_cooldown_days, allowCold],
   )
   const msg = claimed[0]
   if (!msg) {
@@ -197,12 +313,29 @@ async function step(): Promise<Step> {
         WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM broadcast_messages WHERE campaign_id = $1 AND status IN ('pending','sending'))`,
       [campaign.id],
     )
-    if (rowCount) await logEvent(campaign.id, 'concluida', 'Todos os contatos da campanha foram processados.')
-    return { kind: 'stop', reason: 'completed' }
+    if (rowCount) {
+      await logEvent(campaign.id, 'concluida', 'Todos os contatos da campanha foram processados.')
+      return { kind: 'stop', reason: 'completed' }
+    }
+    if (!allowCold) {
+      const { rowCount: logged } = await pool.query(
+        `SELECT 1 FROM broadcast_events WHERE campaign_id = $1 AND kind = 'cota_fria'
+            AND created_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
+        [campaign.id, TZ],
+      )
+      if (!logged) {
+        await logEvent(campaign.id, 'cota_fria', `${counts.cold_today} contatos frios hoje (cota de ${coldCap}). O restante segue amanhã.`)
+      }
+      return { kind: 'stop', reason: 'cold_cap' }
+    }
+    return { kind: 'stop', reason: 'idle' }
   }
 
   if (msg.opted_out) return skip(msg.id, 'descadastrado').then(() => ({ kind: 'skipped' as const }))
   if (msg.recently_sent) return skip(msg.id, 'contato_recente').then(() => ({ kind: 'skipped' as const }))
+  if (msg.cold && !campaign.two_step && s.cold_require_two_step) {
+    return skip(msg.id, 'frio_sem_duas_etapas').then(() => ({ kind: 'skipped' as const }))
+  }
 
   if (msg.wa_exists === false && msg.wa_fresh) return skip(msg.id, 'sem_whatsapp').then(() => ({ kind: 'skipped' as const }))
   if (!msg.wa_fresh || msg.wa_exists === null) {
@@ -222,20 +355,22 @@ async function step(): Promise<Step> {
     }
   }
 
-  const variants = campaign.templates.map((_, i) => i)
-  const pool_ = variants.length > 1 ? variants.filter((i) => i !== campaign.last_variant) : variants
-  const variant = pool_[Math.floor(Math.random() * pool_.length)]
-  const text = renderMessage(campaign.templates[variant], {
-    name: msg.name,
-    hour: localClock().hour,
-    link: campaign.link_url,
-    appendLink: campaign.append_link,
-    optOutFooter: campaign.opt_out_footer,
-  })
-  const typingMs = s.typing_enabled ? Math.min(9000, Math.max(2500, text.length * 35)) + rand(0, 1500) : 0
+  // Two-step openers never carry a link: links in a first message to a stranger are the classic spam signal.
+  const linkAllowed = !campaign.two_step
+  const { variant, text } = await renderUnique(
+    campaign.templates,
+    {
+      name: msg.name,
+      link: linkAllowed ? campaign.link_url : null,
+      appendLink: linkAllowed && campaign.append_link,
+      optOutFooter: campaign.opt_out_footer,
+    },
+    campaign.last_variant,
+  )
+  const typingMs = typingFor(text, s)
 
   try {
-    await sendDirectText(msg.phone, text, { typingMs, linkPreview: true })
+    await sendDirectText(msg.phone, text, { typingMs, linkPreview: linkAllowed && !msg.cold })
   } catch (err) {
     const message = (err as Error).message.slice(0, 500)
     await pool.query(`UPDATE broadcast_messages SET status = 'failed', error = $2, variant = $3, rendered = $4 WHERE id = $1`, [
@@ -262,13 +397,14 @@ async function step(): Promise<Step> {
   }
 
   await pool.query(
-    `UPDATE broadcast_messages SET status = 'sent', sent_at = now(), variant = $2, rendered = $3, error = NULL WHERE id = $1`,
-    [msg.id, variant, text],
+    `UPDATE broadcast_messages SET status = 'sent', sent_at = now(), variant = $2, rendered = $3, error = NULL, cold = $4 WHERE id = $1`,
+    [msg.id, variant, text, msg.cold],
   )
   await pool.query(`UPDATE broadcast_contacts SET last_sent_at = now() WHERE id = $1`, [msg.contact_id])
 
   const batchSent = campaign.batch_sent + 1
-  let delay = rand(s.min_delay_s, s.max_delay_s)
+  const coldFactor = msg.cold ? 1 + s.cold_delay_pct / 100 : 1
+  let delay = Math.round(rand(s.min_delay_s, s.max_delay_s) * coldFactor)
   let batchTarget = campaign.batch_target
   let nextBatchSent = batchSent
   if (batchSent >= campaign.batch_target) {
@@ -301,6 +437,7 @@ export async function runBroadcastTick(): Promise<TickResult> {
   const result: TickResult = { status: 'idle', sent: 0, failed: 0, skipped: 0 }
   if (!evolutionConfig()) return { ...result, status: 'not_configured' }
   if (!(await broadcastSchemaReady())) return { ...result, status: 'missing_schema' }
+  if (!(await coldSchemaReady())) return { ...result, status: 'missing_schema_019' }
 
   const lease = await pool.query(
     `UPDATE broadcast_settings SET tick_lock_until = now() + interval '75 seconds', last_tick_at = now()
@@ -314,6 +451,10 @@ export async function runBroadcastTick(): Promise<TickResult> {
     await pool.query(
       `UPDATE broadcast_messages SET status = 'failed', error = 'Envio interrompido; não reenviado por segurança.'
         WHERE status = 'sending' AND attempted_at < now() - interval '5 minutes'`,
+    )
+    await pool.query(
+      `UPDATE broadcast_messages SET followup_status = 'failed', followup_error = 'Envio interrompido; não reenviado por segurança.'
+        WHERE followup_status = 'sending' AND followup_due_at < now() - interval '5 minutes'`,
     )
     while (Date.now() - started < TICK_BUDGET_MS) {
       const s = await step()

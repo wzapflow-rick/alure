@@ -91,6 +91,17 @@ export async function sendDirectText(number: string, text: string, opts: { typin
   return res?.key?.id ?? null
 }
 
+/** Blue ticks on the contact's reply before answering it, like a person reading the chat. */
+export async function markMessageRead(phone: string, messageId: string) {
+  const cfg = requireConfig()
+  await evolutionFetch(
+    cfg,
+    `/chat/markMessageAsRead/${encodeURIComponent(cfg.instance)}`,
+    { method: 'POST', body: JSON.stringify({ readMessages: [{ remoteJid: `${phone}@s.whatsapp.net`, fromMe: false, id: messageId }] }) },
+    10_000,
+  )
+}
+
 /** Asks WhatsApp whether the numbers have an account, without messaging them. */
 export async function checkWhatsAppNumbers(numbers: string[]) {
   const cfg = requireConfig()

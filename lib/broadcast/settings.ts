@@ -37,6 +37,9 @@ export const settingsSchema = z
     incident_cut_pct: int('Corte do limite após incidente', 25, 90),
     min_reply_rate: int('Taxa mínima de resposta', 0, 50),
     typing_enabled: z.boolean(),
+    cold_share_pct: int('Cota de contatos frios', 10, 100),
+    cold_delay_pct: int('Intervalo extra para frios', 0, 200),
+    cold_require_two_step: z.boolean(),
     opt_out_keywords: z.array(z.string().trim().toLowerCase().min(2).max(30)).min(1, 'Informe ao menos uma palavra de descadastro.'),
   })
   .superRefine((v, ctx) => {

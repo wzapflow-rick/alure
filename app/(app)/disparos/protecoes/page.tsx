@@ -115,6 +115,39 @@ export default async function ProtectionsPage() {
           </div>
         </Group>
 
+        <Group
+          title="Listas frias"
+          description="Contato frio é quem nunca respondeu e nunca comprou (por exemplo, os da Prospecção). Eles geram a maioria das denúncias, então recebem um tratamento mais lento e restrito."
+        >
+          <NumberField
+            name="cold_share_pct"
+            label="Parte do dia para frios"
+            unit="%"
+            value={s.cold_share_pct}
+            min={10}
+            max={100}
+            hint="Do limite diário. O resto fica para quem já conversou com a ALURE."
+          />
+          <NumberField
+            name="cold_delay_pct"
+            label="Intervalo extra para frios"
+            unit="%"
+            value={s.cold_delay_pct}
+            min={0}
+            max={300}
+            hint="Somado ao intervalo normal entre mensagens."
+          />
+          <label className="flex items-start gap-2.5 text-sm sm:col-span-2 lg:col-span-3">
+            <input type="checkbox" name="cold_require_two_step" defaultChecked={s.cold_require_two_step} className="mt-0.5 accent-primary" />
+            <span>
+              Frios só em campanhas de duas etapas
+              <span className="block text-xs text-muted-foreground">
+                Em campanha comum, o contato frio é pulado. A primeira mensagem para um desconhecido nunca leva link.
+              </span>
+            </span>
+          </label>
+        </Group>
+
         <Group title="Janela de envio" description="Só envia em horário comercial (horário de Brasília) e nos dias marcados.">
           <NumberField name="window_start_hour" label="Começa às" unit="h" value={s.window_start_hour} min={8} max={20} />
           <NumberField name="window_end_hour" label="Termina às" unit="h" value={s.window_end_hour} min={9} max={21} />
@@ -150,6 +183,7 @@ export default async function ProtectionsPage() {
         <div className="flex flex-col gap-1 border-t border-border px-5 py-4">
           <ul className="mb-3 flex flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
             <li>Sempre ativo, sem configuração: uma campanha por vez, ordem aleatória de contatos, variação diferente da anterior a cada envio, conferência do número antes de enviar e nada de reenviar mensagem interrompida.</li>
+            <li>Nenhum texto idêntico é enviado duas vezes em 14 dias. Respostas negativas (&quot;spam&quot;, &quot;não quero&quot;, &quot;quem é você&quot;) bloqueiam o contato para sempre. Antes de mandar a oferta, a mensagem do contato é marcada como lida.</li>
           </ul>
           <SubmitButton className="self-start">Salvar proteções</SubmitButton>
         </div>
