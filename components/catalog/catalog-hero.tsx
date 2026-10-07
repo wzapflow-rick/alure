@@ -1,36 +1,45 @@
 'use client'
 
-import { ArrowDown } from 'lucide-react'
-import { TextRing } from '@/components/effects/text-ring'
+import { ArrowRight } from 'lucide-react'
 import { FinishReveal } from '@/components/effects/finish-reveal'
 
-const FINISH_WORDS = ['Cromado', 'Gold Matte', 'Deca', 'ALURE']
-
-export function CatalogHero() {
+export function CatalogHero({ productCount }: { productCount: number | null }) {
   return (
-    <section className="mx-auto max-w-6xl px-5 pt-4 md:px-8 md:pt-8">
-      <div className="grid overflow-hidden rounded-2xl bg-surface-2 md:grid-cols-[1fr_1.1fr]">
-        <div className="flex flex-col justify-center gap-4 px-6 py-7 md:gap-5 md:py-14 md:pl-12 md:pr-20">
+    <section aria-labelledby="hero-title" className="mx-auto max-w-[1440px] px-5 pt-5 md:px-8 md:pt-8">
+      <div className="grid overflow-hidden rounded-2xl bg-surface-2 md:grid-cols-[1fr_1fr] lg:grid-cols-[1.05fr_1fr]">
+        <div className="flex flex-col justify-center gap-4 px-6 py-8 md:gap-5 md:py-12 md:pl-12 md:pr-10 lg:pl-16">
           <p className="text-[11px] font-medium uppercase tracking-[0.24em] text-info">
             {'Metais • Acabamentos • Soluções'}
           </p>
-          <h1 className="text-[1.85rem] font-semibold leading-[1.08] tracking-tight text-balance md:text-5xl">
-            Metais e acabamentos Deca para seus projetos.
+          <h1
+            id="hero-title"
+            className="text-[1.9rem] font-semibold leading-[1.06] tracking-tight text-balance md:text-[2.6rem] lg:text-5xl"
+          >
+            Metais e acabamentos para projetos que se destacam.
           </h1>
           <p className="max-w-md leading-relaxed text-muted-foreground text-pretty">
-            Uma seleção ALURE para profissionais, lojas e projetos.
+            Qualidade, design e durabilidade para banheiros e cozinhas.
           </p>
-          <a
-            href="#selecao"
-            className="inline-flex h-12 w-fit items-center rounded-full bg-primary px-7 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            Ver produtos
-          </a>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-1">
+            <a
+              href="#selecao"
+              className="group inline-flex h-12 items-center gap-2 rounded-full bg-primary px-7 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/60"
+            >
+              Explorar produtos
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+            </a>
+            {productCount ? (
+              <p className="text-sm text-muted-foreground">
+                <span className="tabular font-semibold text-foreground">{productCount}</span>{' '}
+                {productCount === 1 ? 'produto disponível' : 'produtos disponíveis'}
+              </p>
+            ) : null}
+          </div>
         </div>
 
-        <div className="relative aspect-[16/9] md:aspect-auto md:min-h-[420px]">
+        <div className="relative aspect-[16/10] md:aspect-auto md:min-h-[360px]">
           <FinishReveal
-            sizes="(min-width: 1152px) 600px, (min-width: 768px) 52vw, 100vw"
+            sizes="(min-width: 1440px) 700px, (min-width: 768px) 50vw, 100vw"
             base={{
               src: '/catalogo/hero.png',
               alt: 'Misturador Deca cromado sobre bancada de pedra clara',
@@ -42,27 +51,6 @@ export function CatalogHero() {
               label: 'Gold Matte',
             }}
           />
-
-          <a
-            href="#selecao"
-            className="group absolute right-3 top-3 size-24 rounded-full bg-background text-foreground shadow-sm transition-transform hover:scale-105 md:left-0 md:right-auto md:top-1/2 md:size-32 md:-translate-x-1/2 md:-translate-y-1/2 md:hover:scale-105"
-          >
-            <TextRing
-              words={FINISH_WORDS}
-              fontSizePx={10}
-              className="size-full text-primary md:hidden"
-            >
-              <ArrowDown className="size-5 transition-transform group-hover:translate-y-0.5" aria-hidden />
-            </TextRing>
-            <TextRing
-              words={FINISH_WORDS}
-              fontSizePx={12}
-              className="hidden size-full text-primary md:flex"
-            >
-              <ArrowDown className="size-6 transition-transform group-hover:translate-y-0.5" aria-hidden />
-            </TextRing>
-            <span className="sr-only">Ver produtos</span>
-          </a>
         </div>
       </div>
     </section>

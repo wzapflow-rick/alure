@@ -19,7 +19,7 @@ export function ProCta() {
 
   return (
     <section id="venda-direta" className="scroll-mt-20 px-5 pt-16 md:px-8 md:pt-24">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 rounded-2xl bg-foreground px-6 py-10 text-background md:flex-row md:items-center md:justify-between md:px-12 md:py-14">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-8 rounded-2xl bg-foreground px-6 py-10 text-background md:flex-row md:items-center md:justify-between md:px-12 md:py-14">
         <div className="flex max-w-xl flex-col gap-3">
           <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-background/60">
             {'Arquitetos • Lojas • Construtoras'}

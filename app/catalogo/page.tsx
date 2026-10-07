@@ -1,8 +1,9 @@
+import { Suspense } from 'react'
+import type { Metadata } from 'next'
 import { isDbConfigured } from '@/lib/db'
 import { listBestSellerIds, listPublishedItems } from '@/lib/catalog/queries'
-import { buildShowcase } from '@/lib/catalog/curation'
-import { CatalogShowcase } from '@/components/catalog/catalog-showcase'
-import { ProductGrid } from '@/components/catalog/product-grid'
+import { dedupeBySku, CATEGORIES } from '@/lib/catalog/taxonomy'
+import { CatalogBrowser } from '@/components/catalog/catalog-browser'
 import { ProCta } from '@/components/catalog/pro-cta'
 import { CatalogHero } from '@/components/catalog/catalog-hero'
 import { BrandSignature } from '@/components/catalog/brand-signature'
@@ -11,14 +12,23 @@ import type { CatalogItem } from '@/lib/catalog/types'
 
 export const dynamic = 'force-dynamic'
 
-/** Below this many curated matches the showcase would look empty, so the full list is shown instead. */
-const MIN_CURATED = 4
+type PageProps = { searchParams: Promise<Record<string, string | string[] | undefined>> }
+
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const { categoria } = await searchParams
+  const category = CATEGORIES.find((c) => c.slug === categoria)
+  if (!category) return {}
+  return {
+    title: `${category.label} | Catálogo ALURE`,
+    description: `${category.label} com preço de venda direta. Monte seu pedido e finalize pelo WhatsApp.`,
+  }
+}
 
 async function loadCatalog(): Promise<{ items: CatalogItem[]; bestSellerIds: number[] } | null> {
   if (!isDbConfigured()) return null
   try {
-    const [items, bestSellerIds] = await Promise.all([listPublishedItems(), listBestSellerIds(40)])
-    return { items, bestSellerIds }
+    const [items, bestSellerIds] = await Promise.all([listPublishedItems(), listBestSellerIds(500)])
+    return { items: dedupeBySku(items), bestSellerIds }
   } catch (error) {
     console.error('[alure] catalog load failed:', error)
     return null
@@ -27,31 +37,24 @@ async function loadCatalog(): Promise<{ items: CatalogItem[]; bestSellerIds: num
 
 export default async function CatalogPage() {
   const catalog = await loadCatalog()
-  const showcase = catalog ? buildShowcase(catalog.items, catalog.bestSellerIds) : null
-  const curated = showcase !== null && showcase.curatedCount >= MIN_CURATED
 
   return (
     <>
       <TrackEvent event="catalog_open" />
 
-      <CatalogHero />
+      <CatalogHero productCount={catalog?.items.length ?? null} />
 
-      <div className="pt-8 md:pt-12">
-        {catalog === null ? (
-          <p className="mx-auto max-w-6xl px-5 text-muted-foreground md:px-8">
-            O catálogo está indisponível no momento. Tente novamente em instantes.
-          </p>
-        ) : curated ? (
-          <CatalogShowcase showcase={showcase} />
-        ) : catalog.items.length === 0 ? (
-          <p className="mx-auto max-w-6xl px-5 text-muted-foreground md:px-8">Novos produtos em breve.</p>
-        ) : (
-          <section id="selecao" className="mx-auto flex max-w-6xl scroll-mt-20 flex-col gap-6 px-5 md:px-8">
-            <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">Seleção ALURE</h2>
-            <ProductGrid items={catalog.items} />
-          </section>
-        )}
-      </div>
+      {catalog === null ? (
+        <p className="mx-auto max-w-[1440px] px-5 pt-12 text-muted-foreground md:px-8">
+          O catálogo está indisponível no momento. Tente novamente em instantes.
+        </p>
+      ) : catalog.items.length === 0 ? (
+        <p className="mx-auto max-w-[1440px] px-5 pt-12 text-muted-foreground md:px-8">Novos produtos em breve.</p>
+      ) : (
+        <Suspense fallback={<div className="min-h-[60vh]" aria-busy="true" />}>
+          <CatalogBrowser items={catalog.items} bestSellerIds={catalog.bestSellerIds} />
+        </Suspense>
+      )}
 
       <ProCta />
       <BrandSignature />
