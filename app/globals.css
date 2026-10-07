@@ -218,3 +218,8 @@ html:has(.brand-dark) {
   --positive: #1d7a52;
   color-scheme: light;
 }
+
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(3px); }
+}

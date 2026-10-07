@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { ArrowUpRight, LayoutGrid } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type CategoryCard = { slug: string; label: string; count: number; image: string | null }
@@ -26,9 +26,18 @@ export function CategoryStrip({
             O que você procura?
           </h2>
         </div>
+        <p className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground md:hidden">
+          <span className="tabular">{categories.length + 1} categorias</span>
+          <ArrowRight className="size-3.5 motion-safe:animate-[nudge_1.6s_ease-in-out_infinite]" aria-hidden />
+        </p>
       </div>
 
-      <ul className="-mx-5 mt-6 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto overscroll-x-contain px-5 pb-2 [scrollbar-width:none] md:mx-0 md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:px-0 lg:grid-cols-5 [&::-webkit-scrollbar]:hidden">
+      <div className="relative">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 -right-5 z-10 w-14 bg-gradient-to-l from-background to-transparent md:hidden"
+      />
+      <ul className="-mx-5 mt-5 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto overscroll-x-contain px-5 pb-2 [scrollbar-width:none] md:mx-0 md:mt-6 md:grid md:grid-cols-4 md:gap-4 md:overflow-visible md:px-0 lg:grid-cols-5 [&::-webkit-scrollbar]:hidden">
         <li className="w-[42%] shrink-0 snap-start sm:w-[30%] md:w-auto">
           <CategoryLink
             href="/catalogo#selecao"
@@ -52,6 +61,7 @@ export function CategoryStrip({
           </li>
         ))}
       </ul>
+      </div>
     </section>
   )
 }

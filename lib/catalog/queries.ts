@@ -1,6 +1,7 @@
 import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import type { CatalogAdminItem, CatalogItem, CatalogOrder, OrderLine, OrderStatus } from '@/lib/catalog/types'
+import { CATEGORIES, FINISHES, normalizeText } from '@/lib/catalog/taxonomy'
 
 type ItemRow = {
   id: string
@@ -46,14 +47,27 @@ function toAdmin(row: ItemRow): CatalogAdminItem {
   }
 }
 
-/** Public storefront list. Items without a photo are shown with a "Foto em breve" placeholder. */
+/**
+ * Panel photos win; otherwise the linked product's marketplace thumbnail is used,
+ * so auto-synced items aren't all "Foto em breve".
+ */
+const PUBLIC_SELECT = `
+  SELECT ci.id, ci.product_id, ci.sku, ci.name, ci.description, ci.category, ci.finish, ci.price,
+         ci.compare_at_price, ci.published, ci.sort_order,
+         CASE WHEN cardinality(array_remove(ci.images, '')) > 0 THEN array_remove(ci.images, '')
+              WHEN NULLIF(TRIM(p.image), '') IS NOT NULL THEN ARRAY[REGEXP_REPLACE(TRIM(p.image), '^http://', 'https://')]
+              ELSE '{}'::text[] END AS images
+    FROM catalog_items ci
+    LEFT JOIN products p ON p.id = ci.product_id`
+
+function cleanImages(row: ItemRow): ItemRow {
+  return { ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }
+}
+
+/** Public storefront list. Items without any photo are shown with a "Foto em breve" placeholder. */
 export async function listPublishedItems(): Promise<CatalogItem[]> {
-  const rows = await query<ItemRow>(
-    `SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE published ORDER BY sort_order, name`,
-  )
-  return rows
-    .map((row) => ({ ...row, images: (row.images ?? []).filter((src) => typeof src === 'string' && src.trim() !== '') }))
-    .map(toPublic)
+  const rows = await query<ItemRow>(`${PUBLIC_SELECT} WHERE ci.published ORDER BY ci.sort_order, ci.name`)
+  return rows.map(cleanImages).map(toPublic)
 }
 
 /** Catalog item ids ranked by real marketplace units sold in the last 90 days (linked via product_id). */
@@ -81,13 +95,51 @@ export async function listBestSellerIds(limit = 8): Promise<number[]> {
 }
 
 export async function getPublishedItem(id: number): Promise<CatalogItem | null> {
-  const row = await queryOne<ItemRow>(`SELECT ${ITEM_COLUMNS} FROM catalog_items WHERE id = $1 AND published`, [id])
-  return row ? toPublic(row) : null
+  const row = await queryOne<ItemRow>(`${PUBLIC_SELECT} WHERE ci.id = $1 AND ci.published`, [id])
+  return row ? toPublic(cleanImages(row)) : null
 }
 
 export async function listAdminItems(): Promise<CatalogAdminItem[]> {
   const rows = await query<ItemRow>(`SELECT ${ITEM_COLUMNS} FROM catalog_items ORDER BY sort_order, name`)
   return rows.map(toAdmin)
+}
+
+export type TaxonomyOptionGroup = { label: string; options: string[] }
+export type CatalogTaxonomyOptions = { categories: TaxonomyOptionGroup[]; finishes: TaxonomyOptionGroup[] }
+
+function groupOptions(standard: string[], used: string[], usedLabel: string): TaxonomyOptionGroup[] {
+  const known = new Set(standard.map(normalizeText))
+  const seen = new Set<string>()
+  const extra: string[] = []
+  for (const value of used) {
+    const key = normalizeText(value)
+    if (known.has(key) || seen.has(key)) continue
+    seen.add(key)
+    extra.push(value)
+  }
+  extra.sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  return [{ label: 'Padrão do catálogo', options: standard }, ...(extra.length ? [{ label: usedLabel, options: extra }] : [])]
+}
+
+export async function getCatalogTaxonomyOptions(): Promise<CatalogTaxonomyOptions> {
+  const rows = await query<{ kind: 'category' | 'finish'; value: string }>(
+    `SELECT 'category' AS kind, btrim(category) AS value FROM catalog_items WHERE btrim(coalesce(category, '')) <> ''
+     UNION
+     SELECT 'finish', btrim(finish) FROM catalog_items WHERE btrim(coalesce(finish, '')) <> ''`,
+  )
+  const used = (kind: 'category' | 'finish') => rows.filter((r) => r.kind === kind).map((r) => r.value)
+  return {
+    categories: groupOptions(
+      CATEGORIES.map((c) => c.label),
+      used('category'),
+      'Criadas por você',
+    ),
+    finishes: groupOptions(
+      FINISHES.map((f) => f.label),
+      used('finish'),
+      'Criados por você',
+    ),
+  }
 }
 
 export async function getAdminItem(id: number): Promise<CatalogAdminItem | null> {
