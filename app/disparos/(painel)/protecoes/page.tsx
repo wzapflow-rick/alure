@@ -6,6 +6,10 @@ import { loadSettings } from '@/lib/broadcast/queries'
 import { WEEKDAY_LABELS, baseDailyCap, effectiveDailyCap, hourlyCeiling, quarantineActive } from '@/lib/broadcast/settings'
 import { listIncidents, replyTrackingActive } from '@/lib/broadcast/health'
 import { formatDateTime } from '@/lib/broadcast/labels'
+import { EmptyState } from '@/components/ui/primitives'
+import { NumberPicker } from '@/components/dsp/number-picker'
+import { listInstances } from '@/lib/dsp/instances'
+import { requireDspUser } from '@/lib/dsp/session'
 
 export const metadata: Metadata = { title: 'Proteções · Disparos' }
 
@@ -30,16 +34,30 @@ function Group({ title, description, children }: { title: string; description: s
   )
 }
 
-export default async function ProtectionsPage() {
-  const s = await loadSettings()
-  const [incidents, tracking] = await Promise.all([listIncidents(5), replyTrackingActive().catch(() => false)])
+export default async function ProtectionsPage({ searchParams }: { searchParams: Promise<{ n?: string }> }) {
+  const user = await requireDspUser()
+  const instances = await listInstances(user.companyId)
+  const { n } = await searchParams
+  const current = instances.find((i) => i.id === n) ?? instances[0]
+  if (!current) {
+    return (
+      <Panel>
+        <EmptyState title="Nenhum número ainda." description="Crie um número em Números para configurar as proteções dele." />
+      </Panel>
+    )
+  }
+  const s = await loadSettings(current.id)
+  const [incidents, tracking] = await Promise.all([listIncidents(current.id, 5), replyTrackingActive(current.id).catch(() => false)])
   const cap = effectiveDailyCap(s)
   const perHourMax = Math.min(hourlyCeiling(s, cap), Math.floor(3600 / s.min_delay_s))
   const quarantined = quarantineActive(s)
 
   return (
-    <Panel title="Barreiras de proteção" action={<span className="text-xs text-muted-foreground tabular">Hoje: até {cap} envios · no máximo {perHourMax}/h</span>}>
+    <>
+    <NumberPicker instances={instances} current={current.id} basePath="/disparos/protecoes" />
+    <Panel title={`Barreiras de proteção · ${current.label}`} action={<span className="text-xs text-muted-foreground tabular">Hoje: até {cap} envios · no máximo {perHourMax}/h</span>}>
       <ActionForm action={saveProtectionSettings} className="gap-0">
+        <input type="hidden" name="instance_id" value={current.id} />
         <Group
           title="Ritmo entre mensagens"
           description="Cada envio espera um tempo sorteado entre o mínimo e o máximo, nunca um intervalo fixo. De vez em quando entra uma pausa extra de 3 a 10 minutos, como alguém que parou para fazer outra coisa."
@@ -189,5 +207,6 @@ export default async function ProtectionsPage() {
         </div>
       </ActionForm>
     </Panel>
+    </>
   )
 }

@@ -11,7 +11,8 @@ export const PLACEHOLDERS = [
   { token: '{saudacao}', hint: 'Bom dia / Boa tarde / Boa noite' },
   { token: '{primeiro_nome}', hint: 'Primeiro nome do contato' },
   { token: '{nome}', hint: 'Nome completo' },
-  { token: '{link}', hint: 'Link do catálogo' },
+  { token: '{link}', hint: 'Link da campanha' },
+  { token: '{empresa}', hint: 'Nome da sua empresa' },
   { token: '{Oi|Olá|Opa}', hint: 'Sorteia uma das opções' },
 ]
 
@@ -45,9 +46,27 @@ function titleCase(word: string) {
   return word ? word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1).toLocaleLowerCase('pt-BR') : ''
 }
 
+export function varKey(raw: string) {
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30)
+}
+
 export function renderMessage(
   template: string,
-  ctx: { name: string | null; hour: number; link: string | null; appendLink: boolean; optOutFooter: boolean },
+  ctx: {
+    name: string | null
+    hour: number
+    link: string | null
+    appendLink: boolean
+    optOutFooter: boolean
+    company?: string
+    vars?: Record<string, string>
+  },
 ) {
   const fullName = (ctx.name ?? '').trim().split(/\s+/).filter(Boolean).map(titleCase).join(' ')
   const firstName = fullName.split(' ')[0] ?? ''
@@ -56,6 +75,9 @@ export function renderMessage(
     .replaceAll('{primeiro_nome}', firstName)
     .replaceAll('{nome}', fullName)
     .replaceAll('{link}', ctx.link ?? '')
+    .replaceAll('{empresa}', ctx.company ?? '')
+  // Extra spreadsheet columns ({cidade}, {bairro}...). Unknown tokens become empty so no "{x}" reaches the contact.
+  text = text.replace(/\{([a-z0-9_]{1,30})\}/g, (_, key: string) => ctx.vars?.[key] ?? '')
 
   text = text
     .replace(/[ \t]+([,!.?])/g, '$1')
@@ -86,6 +108,45 @@ export function normalizePhone(raw: string) {
 export type ParsedContact = { phone: string; name: string | null }
 
 /** Accepts one contact per line: "Nome; telefone", "telefone, Nome", CSV, tabs or just the number. */
+export type TableContact = ParsedContact & { vars: Record<string, string> }
+
+/**
+ * Spreadsheet with a header row (telefone;nome;cidade...). Extra columns become {variables}.
+ * Without a recognizable header it falls back to the free-form parser.
+ */
+export function parseContactTable(raw: string): { contacts: TableContact[]; invalid: number; columns: string[] } {
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim())
+  const header = lines[0] ?? ''
+  const sep = header.includes('\t') ? '\t' : header.includes(';') ? ';' : ','
+  const cols = header.split(sep).map((c) => varKey(c))
+  const phoneIdx = cols.findIndex((c) => /^(telefone|phone|whatsapp|whats|celular|numero|fone)/.test(c))
+  if (phoneIdx < 0 || cols.length < 2) {
+    const free = parseContactList(raw)
+    return { contacts: free.contacts.map((c) => ({ ...c, vars: {} })), invalid: free.invalid, columns: [] }
+  }
+  const nameIdx = cols.findIndex((c) => /^(nome|name|contato|cliente)$/.test(c))
+  const reserved = new Set(['saudacao', 'primeiro_nome', 'nome', 'link', 'empresa'])
+  const extra = cols
+    .map((key, i) => ({ key, i }))
+    .filter(({ key, i }) => key && i !== phoneIdx && i !== nameIdx && !reserved.has(key))
+    .slice(0, 15)
+  const contacts = new Map<string, TableContact>()
+  let invalid = 0
+  for (const line of lines.slice(1)) {
+    const cells = line.split(sep).map((c) => c.trim().replace(/^"|"$/g, ''))
+    const phone = normalizePhone(cells[phoneIdx] ?? '')
+    if (!phone) {
+      invalid++
+      continue
+    }
+    const vars: Record<string, string> = {}
+    for (const { key, i } of extra) if (cells[i]) vars[key] = cells[i].slice(0, 120)
+    const name = nameIdx >= 0 ? cells[nameIdx]?.slice(0, 120) || null : null
+    contacts.set(phone, { phone, name, vars })
+  }
+  return { contacts: [...contacts.values()], invalid, columns: extra.map((e) => e.key) }
+}
+
 export function parseContactList(raw: string) {
   const contacts = new Map<string, ParsedContact>()
   let invalid = 0

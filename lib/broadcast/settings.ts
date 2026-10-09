@@ -56,6 +56,9 @@ export const settingsSchema = z
 export type ProtectionSettings = z.infer<typeof settingsSchema>
 
 export type BroadcastSettings = ProtectionSettings & {
+  id: string
+  /** Numbers paired less than 7 days ago start the ramp low, whatever the configuration says. */
+  new_number?: boolean
   paused_all: boolean
   warmup_started_on: string | null
   warmup_days: number | null
@@ -68,12 +71,14 @@ export type BroadcastSettings = ProtectionSettings & {
 
 export const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-type CapInput = Pick<BroadcastSettings, 'daily_cap' | 'warmup_enabled' | 'warmup_start' | 'ramp_cap'>
+type CapInput = Pick<BroadcastSettings, 'daily_cap' | 'warmup_enabled' | 'warmup_start' | 'ramp_cap'> & { new_number?: boolean }
+
+export const NEW_NUMBER_DAILY_CAP = 20
 
 /** Limit earned by the number: grows only after healthy days and is cut on incidents. */
 export function baseDailyCap(s: CapInput) {
-  if (!s.warmup_enabled) return s.daily_cap
-  return Math.min(s.daily_cap, s.ramp_cap ?? s.warmup_start)
+  const cap = s.warmup_enabled ? Math.min(s.daily_cap, s.ramp_cap ?? s.warmup_start) : s.daily_cap
+  return s.new_number ? Math.min(cap, NEW_NUMBER_DAILY_CAP) : cap
 }
 
 export function todayKey(date = new Date()) {

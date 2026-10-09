@@ -5,7 +5,8 @@ import { Chips } from '@/components/ui/tab-nav'
 import { ActionForm, InlineAction, SubmitButton } from '@/components/forms/action-form'
 import { importContacts, setContactOptOut } from '@/lib/actions/broadcast'
 import { formatDateTime } from '@/lib/broadcast/labels'
-import { contactStats, listContacts, loadSettings } from '@/lib/broadcast/queries'
+import { contactStats, listContacts } from '@/lib/broadcast/queries'
+import { requireDspUser } from '@/lib/dsp/session'
 import { formatPhone } from '@/lib/broadcast/text'
 
 export const metadata: Metadata = { title: 'Contatos · Disparos' }
@@ -20,14 +21,14 @@ const FILTERS = [
 export default async function ContactsPage({ searchParams }: { searchParams: Promise<{ q?: string; f?: string }> }) {
   const { q = '', f = 'all' } = await searchParams
   const filter = FILTERS.some((x) => x.key === f) ? f : 'all'
-  const settings = await loadSettings()
-  const [stats, contacts] = await Promise.all([contactStats(settings.contact_cooldown_days), listContacts(q, filter)])
+  const user = await requireDspUser()
+  const [stats, contacts] = await Promise.all([contactStats(user.companyId), listContacts(user.companyId, q, filter)])
 
   return (
     <>
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
         <Stat label="Na base" value={stats.total} />
-        <Stat label="Elegíveis agora" value={stats.eligible} hint={`Sem contato há ${settings.contact_cooldown_days}+ dias`} />
+        <Stat label="Elegíveis agora" value={stats.eligible} hint="Sem contato há 30+ dias" />
         <Stat label="Responderam" value={stats.replied} tone={stats.replied ? 'positive' : undefined} />
         <Stat label="Descadastrados" value={stats.opted_out} hint={`${stats.invalid} sem WhatsApp`} />
       </div>

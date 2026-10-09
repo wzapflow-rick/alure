@@ -26,13 +26,13 @@ function matchKey(phone: string) {
   return phone.startsWith('55') && phone.length >= 12 ? `${phone.slice(2, 4)}${phone.slice(-8)}` : phone
 }
 
-async function scanSites(searchId: string | null) {
+async function scanSites(companyId: string, searchId: string | null) {
   const { rows } = await pool.query<{ id: string; website: string }>(
     `SELECT id::text, website FROM prospects
       WHERE website IS NOT NULL AND site_checked_at IS NULL AND wa_status = 'pending'
-        AND ($1::bigint IS NULL OR search_id = $1)
+        AND ($1::bigint IS NULL OR search_id = $1) AND company_id = $3
       ORDER BY id LIMIT $2`,
-    [searchId, SITE_BATCH],
+    [searchId, SITE_BATCH, companyId],
   )
   let found = 0
   for (let i = 0; i < rows.length; i += SITE_CONCURRENCY) {
@@ -48,13 +48,16 @@ async function scanSites(searchId: string | null) {
   return { read: rows.length, found }
 }
 
-export async function runVerification(opts: { searchId?: string | null; limit?: number } = {}): Promise<VerifyResult> {
+export async function runVerification(
+  companyId: string,
+  opts: { searchId?: string | null; limit?: number; instance?: string } = {},
+): Promise<VerifyResult> {
   const searchId = opts.searchId ?? null
-  const settings = await loadProspectSettings()
+  const settings = await loadProspectSettings(companyId)
   const result: VerifyResult = { sitesRead: 0, sitesWithWhatsApp: 0, yes: 0, no: 0, noPhone: 0, errors: 0, capReached: false, error: null }
 
   if (settings.site_scan_enabled) {
-    const scan = await scanSites(searchId)
+    const scan = await scanSites(companyId, searchId)
     result.sitesRead = scan.read
     result.sitesWithWhatsApp = scan.found
   }
@@ -63,14 +66,14 @@ export async function runVerification(opts: { searchId?: string | null; limit?: 
     `UPDATE prospects SET wa_status = 'no_phone', wa_checked_at = now()
       WHERE wa_status = 'pending' AND COALESCE(site_whatsapp, phone) IS NULL
         AND (website IS NULL OR site_checked_at IS NOT NULL OR NOT $2)
-        AND ($1::bigint IS NULL OR search_id = $1)`,
-    [searchId, settings.site_scan_enabled],
+        AND ($1::bigint IS NULL OR search_id = $1) AND company_id = $3`,
+    [searchId, settings.site_scan_enabled, companyId],
   )
   result.noPhone = rowCount ?? 0
 
   if (!settings.wa_check_enabled) return result
 
-  const remaining = settings.daily_check_cap - (await checksToday())
+  const remaining = settings.daily_check_cap - (await checksToday(companyId))
   if (remaining <= 0) {
     result.capReached = true
     return result
@@ -79,9 +82,9 @@ export async function runVerification(opts: { searchId?: string | null; limit?: 
     `SELECT id::text, COALESCE(site_whatsapp, phone) AS candidate FROM prospects
       WHERE wa_status IN ('pending','error') AND COALESCE(site_whatsapp, phone) IS NOT NULL
         AND (website IS NULL OR site_checked_at IS NOT NULL OR NOT $2)
-        AND ($1::bigint IS NULL OR search_id = $1)
+        AND ($1::bigint IS NULL OR search_id = $1) AND company_id = $4
       ORDER BY id LIMIT $3`,
-    [searchId, settings.site_scan_enabled, Math.min(remaining, opts.limit ?? 200)],
+    [searchId, settings.site_scan_enabled, Math.min(remaining, opts.limit ?? 200), companyId],
   )
   result.capReached = rows.length === remaining
 
@@ -89,7 +92,7 @@ export async function runVerification(opts: { searchId?: string | null; limit?: 
     const chunk = rows.slice(i, i + CHECK_CHUNK)
     let answers: Awaited<ReturnType<typeof checkWhatsAppNumbers>>
     try {
-      answers = await checkWhatsAppNumbers([...new Set(chunk.map((r) => r.candidate))])
+      answers = await checkWhatsAppNumbers([...new Set(chunk.map((r) => r.candidate))], opts.instance)
     } catch (e) {
       result.error = (e as Error).message.slice(0, 200)
       break

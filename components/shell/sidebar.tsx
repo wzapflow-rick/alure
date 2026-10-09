@@ -14,7 +14,6 @@ import {
   Menu,
   Package,
   ScrollText,
-  Send,
   Settings,
   Sparkles,
   Target,
@@ -45,7 +44,6 @@ const GROUPS: { label: string | null; items: NavItem[] }[] = [
       { href: '/testes', label: 'Testes', icon: FlaskConical },
       { href: '/alertas', label: 'Alertas', icon: Bell },
       { href: '/venda-direta', label: 'Venda direta', icon: Store },
-      { href: '/disparos', label: 'Disparos', icon: Send },
     ],
   },
   {
