@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth'
 import { APIError } from 'better-auth/api'
 import { pool } from '@/lib/db'
+import { authRateLimitStorage } from '@/lib/auth-rate-limit'
 
 function allowedEmails() {
   return (process.env.ALURE_ALLOWED_EMAILS ?? '')
@@ -28,8 +29,16 @@ export const auth = betterAuth({
       create: {
         before: async (user) => {
           const allowed = allowedEmails()
-          if (allowed.length > 0 && !allowed.includes(user.email.toLowerCase())) {
-            throw new APIError('FORBIDDEN', { message: 'Cadastro não autorizado.' })
+          if (allowed.length > 0) {
+            if (!allowed.includes(user.email.toLowerCase())) {
+              throw new APIError('FORBIDDEN', { message: 'Cadastro não autorizado.' })
+            }
+            return { data: user }
+          }
+          // Without an allowlist only the very first account may be created; afterwards sign-up is closed.
+          const { rows } = await pool.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM "user") AS exists`)
+          if (rows[0]?.exists) {
+            throw new APIError('FORBIDDEN', { message: 'Cadastro fechado. Peça acesso ao administrador.' })
           }
           return { data: user }
         },
@@ -55,6 +64,17 @@ export const auth = betterAuth({
         ]
       : []),
   ],
+  rateLimit: {
+    enabled: process.env.NODE_ENV === 'production',
+    window: 60,
+    max: 100,
+    customStorage: authRateLimitStorage,
+    customRules: {
+      '/sign-in/email': { window: 15 * 60, max: 10 },
+      '/sign-up/email': { window: 60 * 60, max: 5 },
+      '/change-password': { window: 15 * 60, max: 5 },
+    },
+  },
   session: {
     expiresIn: 60 * 60 * 24 * 7,
     updateAge: 60 * 60 * 24,
