@@ -8,23 +8,33 @@ import { createCampaign } from '@/lib/actions/broadcast'
 import { PLACEHOLDERS, countCombinations, renderMessage } from '@/lib/broadcast/text'
 
 const STARTERS = [
-  '{saudacao}, {primeiro_nome}! {Tudo bem?|Tudo certo por aí?|Como vai?}\n\n{Separamos|Montamos|Preparamos} uma seleção de metais e acabamentos Deca com {preços especiais|condições especiais|valores bem competitivos} para {projetos e obras|quem está reformando|profissionais e lojas}.\n\n{Dá uma olhada|Confere aqui|Vale a pena ver}: {link}',
-  '{Oi|Olá|Opa}, {primeiro_nome}, {tudo bem|tudo certo}? Aqui é da ALURE.\n\n{Atualizamos|Acabamos de atualizar|Renovamos} nosso catálogo Deca, com {duchas, misturadores e acabamentos|metais e acabamentos} {a pronta entrega|com envio rápido}.\n\n{O link é este|Segue o link|Pode ver por aqui}: {link}',
-  '{saudacao}! {Passando para avisar|Queria te mostrar|Lembrei de você}: {temos|estamos com} {novidades|uma seleção nova} da Deca no catálogo da ALURE.\n\n{Se tiver algum projeto em andamento|Se estiver precisando de alguma peça|Caso precise de algo}, {é só pedir por aqui|me chama aqui mesmo|respondo por aqui}.\n\n{link}',
+  '{saudacao}, {primeiro_nome}! {Tudo bem?|Tudo certo por aí?|Como vai?}\n\n{Aqui é da|Falo da} {empresa}. {Preparamos|Separamos} {uma novidade|uma condição especial} {pra você|para os nossos contatos}.\n\n{Dá uma olhada|Confere aqui}: {link}',
+  '{Oi|Olá|Opa}, {primeiro_nome}, {tudo bem|tudo certo}? {Sou|Falo} da {empresa}.\n\n{Queria te mostrar|Passando para te mostrar} {o que temos de novo|nossas novidades}: {link}',
+  '{saudacao}! {Lembrei de você|Passando rapidinho}: {temos|estamos com} {novidades|condições especiais} na {empresa}.\n\n{Se precisar de algo|Caso tenha interesse}, {é só responder aqui|me chama por aqui}.\n\n{link}',
 ]
 
 const COLD_OPENERS = [
-  '{saudacao}, {primeiro_nome}! {Tudo bem?|Tudo certo?} Aqui é {o|a equipe} da ALURE, {de metais e acabamentos Deca|trabalhamos com metais Deca}. {Vocês|Você} {costuma|costumam} {comprar|usar} {torneiras e misturadores|metais e acabamentos} {para obras|em projetos}?',
-  '{Oi|Olá|Opa}, {primeiro_nome}, {tudo bem|tudo certo}? {Sou|Falo} da ALURE. {Posso te fazer uma pergunta rápida?|Rapidinho:} {vocês estão com alguma obra ou reforma|tem algum projeto de banheiro ou cozinha} {em andamento|rolando agora}?',
-  '{saudacao}! {Aqui é da ALURE|Tudo bem? ALURE aqui}, {fornecemos|trabalhamos com} metais e acabamentos Deca {para profissionais|para lojas e obras}. {Faz sentido eu te mandar|Posso te enviar} {nosso catálogo|uma seleção com preços}?',
+  '{saudacao}, {primeiro_nome}! {Tudo bem?|Tudo certo?} {Aqui é da|Falo da} {empresa}. {Posso te fazer uma pergunta rápida?|Rapidinho:} {você ainda cuida disso por aí?|é com você que eu falo sobre isso?}',
+  '{Oi|Olá|Opa}, {primeiro_nome}, {tudo bem|tudo certo}? {Sou|Falo} da {empresa}. {Faz sentido eu te mandar|Posso te enviar} {uma proposta|mais informações}?',
+  '{saudacao}! {Aqui é da {empresa}|{empresa} aqui}. {Vi seu contato|Encontrei vocês} e {fiquei curioso|queria entender}: {vocês já trabalham com isso|isso faz sentido pra vocês} hoje?',
 ]
 
 const OFFERS = [
-  '{Perfeito|Ótimo|Que bom}, {primeiro_nome}! {Segue|Aqui está} {nosso catálogo|a seleção} com {preços para projeto|condições especiais}: {link}\n\n{Qualquer dúvida é só me chamar.|Se quiser, já monto um orçamento.}',
-  '{Show|Beleza|Combinado}! {Separei|Deixo aqui} o {catálogo|link} {com os metais e acabamentos|da ALURE}: {link}\n\n{Me fala o que você precisa que eu te ajudo.|Se tiver uma lista de itens, me manda que eu cotoo.}',
+  '{Perfeito|Ótimo|Que bom}, {primeiro_nome}! {Segue|Aqui está} {o link|mais detalhes}: {link}\n\n{Qualquer dúvida é só me chamar.|Se quiser, te explico melhor por aqui.}',
+  '{Show|Beleza|Combinado}! {Deixo aqui|Separei} {o link|as informações}: {link}\n\n{Me fala o que você precisa que eu te ajudo.|Fico à disposição.}',
 ]
 
-export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags: { tag: string; n: number }[] }) {
+export function CampaignForm({
+  defaultLink,
+  tags,
+  varKeys = [],
+  instances,
+}: {
+  defaultLink: string
+  tags: { tag: string; n: number }[]
+  varKeys?: string[]
+  instances: { id: string; label: string }[]
+}) {
   const [twoStep, setTwoStep] = useState(true)
   const [templates, setTemplates] = useState<string[]>(COLD_OPENERS)
   const [offers, setOffers] = useState<string[]>(OFFERS)
@@ -63,7 +73,16 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
     <ActionForm action={createCampaign} className="gap-6">
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Nome da campanha" htmlFor="name">
-          <Input id="name" name="name" required maxLength={80} placeholder="Catálogo Deca · maio" />
+          <Input id="name" name="name" required maxLength={80} placeholder="Prospecção · outubro" />
+        </Field>
+        <Field label="Enviar pelo número" htmlFor="instance_id" hint="Cada número tem os próprios limites e proteções.">
+          <Select id="instance_id" name="instance_id" required defaultValue={instances[0]?.id}>
+            {instances.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.label}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="Público" htmlFor="tag" hint="Só contatos elegíveis entram: quem saiu, não tem WhatsApp ou foi contatado há pouco fica de fora.">
           <Select id="tag" name="tag" defaultValue="">
@@ -75,7 +94,7 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
             ))}
           </Select>
         </Field>
-        <Field label="Link do catálogo" htmlFor="link_url">
+        <Field label="Link (opcional)" htmlFor="link_url" hint="Usado no lugar de {link}.">
           <Input id="link_url" name="link_url" type="url" value={link} onChange={(e) => setLink(e.target.value)} />
         </Field>
         <Field label="Máximo de contatos nesta campanha" htmlFor="max_recipients" hint="O limite diário continua valendo: o restante segue nos dias seguintes.">
@@ -104,8 +123,9 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-sm font-medium">{twoStep ? 'Variações da abertura (sem link)' : 'Variações da mensagem'}</h3>
-          <span className={`text-xs tabular ${filled >= 3 && combos >= 10 ? 'text-positive' : 'text-attention'}`}>
-            {filled} variações · {combos.toLocaleString('pt-BR')} textos possíveis (mínimo: 3 variações e 10 textos)
+          <span className={`text-xs tabular ${combos >= 10 ? 'text-positive' : 'text-attention'}`}>
+            {filled} {filled === 1 ? 'variação' : 'variações'} · {combos.toLocaleString('pt-BR')} textos possíveis
+            {combos < 10 ? ' · quanto mais variação, menor o risco' : ''}
           </span>
         </div>
         <ul className="flex flex-wrap gap-2" aria-label="Marcadores disponíveis">
@@ -115,6 +135,12 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
               <span className="text-muted-foreground"> {p.hint}</span>
             </li>
           ))}
+          {varKeys.map((k) => (
+            <li key={k} className="rounded-md border border-border bg-surface-2 px-2 py-1 text-xs" title="Coluna da planilha importada">
+              <code className="font-mono text-foreground">{`{${k}}`}</code>
+              <span className="text-muted-foreground"> coluna da planilha</span>
+            </li>
+          ))}
         </ul>
         {templates.map((t, i) => (
           <div key={i} className="flex flex-col gap-1.5">
@@ -122,7 +148,7 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
               <label htmlFor={`tpl-${i}`} className="text-xs font-medium text-muted-foreground">
                 Variação {i + 1}
               </label>
-              {templates.length > 3 ? (
+              {templates.length > 1 ? (
                 <Button type="button" variant="ghost" size="sm" onClick={() => setTemplates((list) => list.filter((_, j) => j !== i))}>
                   <Trash2 className="size-3.5" aria-hidden /> Remover
                 </Button>
@@ -132,14 +158,14 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
               id={`tpl-${i}`}
               name="templates"
               value={t}
-              maxLength={1000}
+              maxLength={2000}
               rows={6}
               onChange={(e) => setTemplates((list) => list.map((x, j) => (j === i ? e.target.value : x)))}
               className="font-mono text-[13px]"
             />
           </div>
         ))}
-        {templates.length < 10 ? (
+        {templates.length < 20 ? (
           <Button type="button" size="sm" className="self-start" onClick={() => setTemplates((list) => [...list, ''])}>
             <Plus className="size-4" aria-hidden /> Adicionar variação
           </Button>
@@ -166,7 +192,7 @@ export function CampaignForm({ defaultLink, tags }: { defaultLink: string; tags:
                 <label htmlFor={`offer-${i}`} className="text-xs font-medium text-muted-foreground">
                   Oferta {i + 1}
                 </label>
-                {offers.length > 2 ? (
+                {offers.length > 1 ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => setOffers((list) => list.filter((_, j) => j !== i))}>
                     <Trash2 className="size-3.5" aria-hidden /> Remover
                   </Button>

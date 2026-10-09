@@ -35,17 +35,103 @@ export function evolutionConfig(): EvolutionConfig | null {
   }
 }
 
+/** Server-level access (global key): enough to manage and use any instance. */
+export function evolutionServerConfig(): EvolutionConfig | null {
+  const rawUrl = process.env.EVOLUTION_API_URL?.trim()
+  const apiKey = process.env.EVOLUTION_API_KEY?.trim()
+  if (!rawUrl || !apiKey) return null
+  return { baseUrl: normalizeBaseUrl(rawUrl), apiKey, instance: process.env.EVOLUTION_INSTANCE?.trim() ?? '', groupJid: null, groupJidInvalid: false }
+}
+
 export type ConnectionState = 'open' | 'connecting' | 'close' | 'unknown'
 
-export async function connectionState(): Promise<ConnectionState> {
-  const cfg = evolutionConfig()
-  if (!cfg) return 'unknown'
-  const res = await evolutionFetch<{ instance?: { state?: string } }>(
-    cfg,
-    `/instance/connectionState/${encodeURIComponent(cfg.instance)}`,
-  ).catch(() => null)
+/** Instance name for a Disparos number; NULL means the original EVOLUTION_INSTANCE. */
+export function resolveInstanceName(name: string | null | undefined) {
+  return name?.trim() || process.env.EVOLUTION_INSTANCE?.trim() || ''
+}
+
+export async function connectionState(instance?: string): Promise<ConnectionState> {
+  const cfg = evolutionServerConfig()
+  const name = instance ?? cfg?.instance
+  if (!cfg || !name) return 'unknown'
+  const res = await evolutionFetch<{ instance?: { state?: string } }>(cfg, `/instance/connectionState/${encodeURIComponent(name)}`).catch(
+    (e) => (e instanceof EvolutionApiError && e.status === 404 ? { instance: { state: 'close' } } : null),
+  )
   const state = res?.instance?.state
   return state === 'open' || state === 'connecting' || state === 'close' ? state : 'unknown'
+}
+
+const INSTANCE_EVENTS = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'LOGOUT_INSTANCE']
+
+function requireServer() {
+  const cfg = evolutionServerConfig()
+  if (!cfg) throw new Error('Evolution API não configurada (EVOLUTION_API_URL e EVOLUTION_API_KEY).')
+  return cfg
+}
+
+export async function createInstance(name: string, webhookUrl: string | null) {
+  const cfg = requireServer()
+  const res = await evolutionFetch<{ qrcode?: { base64?: string } }>(cfg, `/instance/create`, {
+    method: 'POST',
+    body: JSON.stringify({
+      instanceName: name,
+      integration: 'WHATSAPP-BAILEYS',
+      qrcode: true,
+      rejectCall: false,
+      groupsIgnore: true,
+      alwaysOnline: false,
+      readMessages: false,
+      readStatus: false,
+      syncFullHistory: false,
+      ...(webhookUrl ? { webhook: { url: webhookUrl, byEvents: false, base64: false, events: INSTANCE_EVENTS } } : {}),
+    }),
+  })
+  return res?.qrcode?.base64 ?? null
+}
+
+export async function setInstanceWebhook(name: string, webhookUrl: string) {
+  const cfg = requireServer()
+  await evolutionFetch(cfg, `/webhook/set/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: JSON.stringify({ webhook: { enabled: true, url: webhookUrl, byEvents: false, base64: false, events: INSTANCE_EVENTS } }),
+  })
+}
+
+/** QR code (data URL) to pair the phone; null when the instance is already connected. */
+export async function connectQr(name: string) {
+  const cfg = requireServer()
+  const res = await evolutionFetch<{ base64?: string; code?: string; pairingCode?: string | null }>(
+    cfg,
+    `/instance/connect/${encodeURIComponent(name)}`,
+  )
+  return res?.base64 ?? null
+}
+
+export async function logoutInstance(name: string) {
+  const cfg = requireServer()
+  await evolutionFetch(cfg, `/instance/logout/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch((e) => {
+    if (!(e instanceof EvolutionApiError) || e.status >= 500) throw e
+  })
+}
+
+export async function deleteInstance(name: string) {
+  const cfg = requireServer()
+  await evolutionFetch(cfg, `/instance/delete/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch((e) => {
+    if (!(e instanceof EvolutionApiError) || e.status >= 500) throw e
+  })
+}
+
+/** Phone number paired to the instance, digits only. */
+export async function instanceOwner(name: string) {
+  const cfg = requireServer()
+  const res = await evolutionFetch<Array<{ ownerJid?: string; owner?: string; number?: string; instance?: { owner?: string } }>>(
+    cfg,
+    `/instance/fetchInstances?instanceName=${encodeURIComponent(name)}`,
+  ).catch(() => null)
+  const row = Array.isArray(res) ? res[0] : null
+  const jid = row?.ownerJid ?? row?.owner ?? row?.instance?.owner ?? row?.number ?? ''
+  const digits = String(jid).split('@')[0].replace(/\D/g, '')
+  return digits || null
 }
 
 export class EvolutionApiError extends Error {
@@ -75,13 +161,24 @@ function requireConfig() {
   return cfg
 }
 
+function instanceTarget(instance?: string) {
+  const cfg = instance ? requireServer() : requireConfig()
+  const name = instance ?? cfg.instance
+  if (!name) throw new Error('Instância da Evolution não definida.')
+  return { cfg, name }
+}
+
 /** Direct message to one contact. `typingMs` makes WhatsApp show "digitando…" before the text arrives. */
-export async function sendDirectText(number: string, text: string, opts: { typingMs?: number; linkPreview?: boolean } = {}) {
-  const cfg = requireConfig()
+export async function sendDirectText(
+  number: string,
+  text: string,
+  opts: { typingMs?: number; linkPreview?: boolean; instance?: string } = {},
+) {
+  const { cfg, name } = instanceTarget(opts.instance)
   const typingMs = Math.max(0, Math.round(opts.typingMs ?? 0))
   const res = await evolutionFetch<{ key?: { id?: string } }>(
     cfg,
-    `/message/sendText/${encodeURIComponent(cfg.instance)}`,
+    `/message/sendText/${encodeURIComponent(name)}`,
     {
       method: 'POST',
       body: JSON.stringify({ number, text, ...(typingMs ? { delay: typingMs } : {}), linkPreview: opts.linkPreview ?? true }),
@@ -92,22 +189,22 @@ export async function sendDirectText(number: string, text: string, opts: { typin
 }
 
 /** Blue ticks on the contact's reply before answering it, like a person reading the chat. */
-export async function markMessageRead(phone: string, messageId: string) {
-  const cfg = requireConfig()
+export async function markMessageRead(phone: string, messageId: string, instance?: string) {
+  const { cfg, name } = instanceTarget(instance)
   await evolutionFetch(
     cfg,
-    `/chat/markMessageAsRead/${encodeURIComponent(cfg.instance)}`,
+    `/chat/markMessageAsRead/${encodeURIComponent(name)}`,
     { method: 'POST', body: JSON.stringify({ readMessages: [{ remoteJid: `${phone}@s.whatsapp.net`, fromMe: false, id: messageId }] }) },
     10_000,
   )
 }
 
 /** Asks WhatsApp whether the numbers have an account, without messaging them. */
-export async function checkWhatsAppNumbers(numbers: string[]) {
-  const cfg = requireConfig()
+export async function checkWhatsAppNumbers(numbers: string[], instance?: string) {
+  const { cfg, name } = instanceTarget(instance)
   const res = await evolutionFetch<Array<{ exists?: boolean; number?: string; jid?: string }>>(
     cfg,
-    `/chat/whatsappNumbers/${encodeURIComponent(cfg.instance)}`,
+    `/chat/whatsappNumbers/${encodeURIComponent(name)}`,
     { method: 'POST', body: JSON.stringify({ numbers }) },
   )
   return (res ?? []).map((r) => ({ number: String(r.number ?? r.jid ?? '').replace(/\D/g, ''), exists: Boolean(r.exists) }))

@@ -17,6 +17,7 @@ import {
   type ProspectFilter,
 } from '@/lib/prospect/queries'
 import { serpApiKey } from '@/lib/prospect/serpapi'
+import { requireDspUser } from '@/lib/dsp/session'
 
 export const metadata: Metadata = { title: 'Prospecção · Disparos' }
 export const maxDuration = 300
@@ -39,12 +40,13 @@ export default async function ProspectingPage({
   const filter: ProspectFilter = PROSPECT_FILTERS.includes(params.f as ProspectFilter) ? (params.f as ProspectFilter) : 'all'
   const q = params.q ?? ''
 
-  const settings = await loadProspectSettings()
+  const user = await requireDspUser()
+  const settings = await loadProspectSettings(user.companyId)
   const [stats, searches, prospects, lists] = await Promise.all([
-    prospectStats(),
-    listSearches(),
-    listProspects({ searchId, filter, q }),
-    listProspectLists(settings.require_whatsapp),
+    prospectStats(user.companyId),
+    listSearches(user.companyId),
+    listProspects(user.companyId, { searchId, filter, q }),
+    listProspectLists(user.companyId, settings.require_whatsapp),
   ])
   const currentSearch = searches.find((s) => s.id === searchId)
 

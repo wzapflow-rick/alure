@@ -7,15 +7,17 @@ const TABS = [
   { href: '/disparos', label: 'Painel' },
   { href: '/disparos/prospeccao', label: 'Prospecção' },
   { href: '/disparos/contatos', label: 'Contatos' },
+  { href: '/disparos/numeros', label: 'Números' },
   { href: '/disparos/protecoes', label: 'Proteções' },
 ]
 
-export function BroadcastNav() {
+export function BroadcastNav({ admin = false }: { admin?: boolean }) {
   const pathname = usePathname()
+  const tabs = admin ? [...TABS, { href: '/disparos/admin', label: 'Admin' }] : TABS
   return (
     <TabNav
       label="Disparos"
-      tabs={TABS.map((tab) => ({
+      tabs={tabs.map((tab) => ({
         ...tab,
         active:
           tab.href === '/disparos'

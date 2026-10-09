@@ -8,14 +8,16 @@ import { cancelCampaign, pauseCampaignAction, sendCampaignTest, startCampaign } 
 import { CAMPAIGN_STATUS, EVENT_LABEL, MESSAGE_STATUS, PAUSE_REASON, SKIP_REASON, formatDateTime } from '@/lib/broadcast/labels'
 import { campaignDetail, getCampaign } from '@/lib/broadcast/queries'
 import { formatPhone } from '@/lib/broadcast/text'
+import { requireDspUser } from '@/lib/dsp/session'
 
 export const metadata: Metadata = { title: 'Campanha · Disparos' }
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const campaign = await getCampaign(id)
+  const user = await requireDspUser()
+  const campaign = await getCampaign(user.companyId, id)
   if (!campaign) notFound()
-  const { skips, recent, events } = await campaignDetail(id)
+  const { skips, recent, events } = await campaignDetail(user.companyId, id)
   const status = CAMPAIGN_STATUS[campaign.status]
   const replyRate = campaign.sent ? Math.round((campaign.replied / campaign.sent) * 100) : 0
   const editable = campaign.status === 'draft' || campaign.status === 'paused' || campaign.status === 'running'
