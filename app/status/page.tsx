@@ -1,4 +1,6 @@
 import { Pool } from 'pg'
+import { redirect } from 'next/navigation'
+import { getSessionUser, type SessionUser } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Status do banco — ALURE OS', robots: { index: false } }
@@ -93,6 +95,19 @@ function errorText(error: unknown) {
 }
 
 export default async function StatusPage() {
+  let user: SessionUser | null
+  try {
+    user = await getSessionUser()
+  } catch {
+    // Login itself needs the database, so when it is down only an anonymous verdict is shown.
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-2xl flex-col gap-3 px-6 py-16">
+        <h1 className="text-balance text-3xl font-semibold">Banco não conectado</h1>
+        <p className="text-destructive">Não foi possível acessar o banco de dados. Confira a DATABASE_URL nas variáveis do projeto.</p>
+      </main>
+    )
+  }
+  if (!user) redirect('/entrar')
   const target = describeTarget()
   const { checks, ms } = await runChecks()
   const allOk = checks.every((c) => c.ok)
