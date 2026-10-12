@@ -746,24 +746,30 @@ async function recordOutcomes(client: PoolClient, today: string) {
       id: string; days: number; orders_before: string; orders_after: string
       revenue_before: string; revenue_after: string; visits_before: string | null; visits_after: string | null
     }>(
-      `SELECT m.id, (m.review_date - m.memory_date) AS days,
+      // Anchor = execution date (migration 022); legacy records keep the approval date.
+      // Approved-but-not-executed actions are never measured: there is nothing to attribute yet.
+      `SELECT m.id, (m.review_date - w.anchor) AS days,
               COALESCE(sb.orders,0) AS orders_before, COALESCE(sa.orders,0) AS orders_after,
               COALESCE(sb.revenue,0) AS revenue_before, COALESCE(sa.revenue,0) AS revenue_after,
               tb.visits AS visits_before, ta.visits AS visits_after
          FROM strategic_memory m
+         JOIN recommendations r ON r.id = m.recommendation_id
+   CROSS JOIN LATERAL (SELECT COALESCE(r.executed_at, m.memory_date) AS anchor) w
     LEFT JOIN LATERAL (SELECT SUM(orders) orders, SUM(revenue) revenue FROM sales_metrics
                         WHERE product_channel_id = m.product_channel_id
-                          AND metric_date <  m.memory_date AND metric_date >= m.memory_date - (m.review_date - m.memory_date)) sb ON true
+                          AND metric_date <  w.anchor AND metric_date >= w.anchor - (m.review_date - w.anchor)) sb ON true
     LEFT JOIN LATERAL (SELECT SUM(orders) orders, SUM(revenue) revenue FROM sales_metrics
                         WHERE product_channel_id = m.product_channel_id
-                          AND metric_date >= m.memory_date AND metric_date < m.review_date) sa ON true
+                          AND metric_date >= w.anchor AND metric_date < m.review_date) sa ON true
     LEFT JOIN LATERAL (SELECT SUM(visits) visits FROM traffic_metrics
                         WHERE product_channel_id = m.product_channel_id
-                          AND metric_date <  m.memory_date AND metric_date >= m.memory_date - (m.review_date - m.memory_date)) tb ON true
+                          AND metric_date <  w.anchor AND metric_date >= w.anchor - (m.review_date - w.anchor)) tb ON true
     LEFT JOIN LATERAL (SELECT SUM(visits) visits FROM traffic_metrics
                         WHERE product_channel_id = m.product_channel_id
-                          AND metric_date >= m.memory_date AND metric_date < m.review_date) ta ON true
+                          AND metric_date >= w.anchor AND metric_date < m.review_date) ta ON true
         WHERE m.outcome IS NULL AND m.recommendation_id IS NOT NULL
+          AND r.status NOT IN ('approved','in_progress','cancelled','dismissed','open')
+          AND m.review_date > w.anchor
           AND m.product_channel_id IS NOT NULL AND m.review_date <= $1::date`,
       [today],
     )
@@ -773,7 +779,7 @@ async function recordOutcomes(client: PoolClient, today: string) {
       const delta = rb > 0 ? ((ra - rb) / rb) * 100 : null
       const verdict = delta === null ? (ra > 0 ? 'melhorou' : 'sem dados') : delta >= 10 ? 'melhorou' : delta <= -10 ? 'piorou' : 'estável'
       const visits = r.visits_before !== null && r.visits_after !== null ? ` · visitas ${r.visits_before} → ${r.visits_after}` : ''
-      const text = `Resultado em ${r.days} dias: ${verdict}. Pedidos ${ob} → ${oa}; faturamento R$ ${rb.toFixed(2)} → R$ ${ra.toFixed(2)}${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%)` : ''}${visits}.`
+      const text = `Observado em ${r.days} dias após a execução (sem atribuição causal): ${verdict}. Pedidos ${ob} → ${oa}; faturamento R$ ${rb.toFixed(2)} → R$ ${ra.toFixed(2)}${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%)` : ''}${visits}.`
       await client.query(
         `UPDATE strategic_memory SET outcome = $2, outcome_data = $3, outcome_at = now(), updated_at = now() WHERE id = $1`,
         [r.id, text, JSON.stringify({ verdict, days: r.days, ordersBefore: ob, ordersAfter: oa, revenueBefore: rb, revenueAfter: ra, revenueDeltaPct: delta, visitsBefore: r.visits_before, visitsAfter: r.visits_after })],

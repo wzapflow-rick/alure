@@ -9,6 +9,8 @@ import { logAudit } from '@/lib/audit'
 import { getLatestAnalysis, runAnalysis } from '@/lib/analysis'
 import { hasAlertHistory } from '@/lib/engine/run'
 import { authed, failure, formObject, optionalText, type ActionState } from '@/lib/actions/shared'
+import { canReopen, reviewDateFor, validateStep, type LifecycleStep } from '@/lib/engine/lifecycle'
+import { todayISO } from '@/lib/format'
 
 /**
  * Approving a recommendation writes an automatic memory record (kind 'context', so it never
@@ -61,10 +63,12 @@ export async function updateRecommendation(_: ActionState, formData: FormData): 
         [input.id],
       )
       if (!rows[0]) throw new Error('not found')
+      if (input.status === 'open' && !canReopen(rows[0].status)) throw new UserError('Ações já executadas não podem voltar para pendente.')
       await client.query(
         `UPDATE recommendations SET status = $2, resolved_at = CASE WHEN $2 = 'open' THEN NULL ELSE now() END, updated_at = now() WHERE id = $1`,
         [input.id, input.status],
       )
+      if (input.status === 'approved') await setApprovedAt(client, input.id)
       await client.query(
         `INSERT INTO recommendation_events (recommendation_id, event, note, user_id) VALUES ($1, $2, $3, $4)`,
         [input.id, input.status === 'open' ? 'reopened' : input.status, input.note, user.id],
@@ -86,6 +90,123 @@ export async function updateRecommendation(_: ActionState, formData: FormData): 
     revalidatePath('/', 'layout')
     return { ok: true }
   } catch (e) {
+    if (e instanceof UserError) return { ok: false, message: e.message }
+    return failure(e)
+  }
+}
+
+class UserError extends Error {}
+
+/** Approval date column comes from migration 022; before it the approval still succeeds. */
+async function setApprovedAt(client: PoolClient, id: number) {
+  await client.query('SAVEPOINT approved_at')
+  try {
+    await client.query('UPDATE recommendations SET approved_at = CURRENT_DATE WHERE id = $1', [id])
+    await client.query('RELEASE SAVEPOINT approved_at')
+  } catch (e) {
+    await client.query('ROLLBACK TO SAVEPOINT approved_at')
+    if ((e as { code?: string }).code !== '42703') throw e
+  }
+}
+
+const stepSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  to: z.enum(['in_progress', 'awaiting_review', 'completed', 'cancelled']),
+  owner: optionalText,
+  executed_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')).transform((v) => v || null),
+  note: optionalText,
+  learning: optionalText,
+})
+
+const STEP_EVENT: Record<LifecycleStep, string> = {
+  in_progress: 'started',
+  awaiting_review: 'executed',
+  completed: 'completed',
+  cancelled: 'cancelled',
+}
+
+/**
+ * Human steps after approval. Execution moves the evaluation window to the execution date:
+ * the linked memory record gets the new review date and the engine measures before × after from it.
+ * Nothing here touches prices, ads or listings — it only records what the team did.
+ */
+export async function advanceRecommendation(_: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const user = await authed()
+    const input = stepSchema.parse(formObject(formData))
+    const today = todayISO()
+    await withTransaction(async (client) => {
+      const { rows } = await client.query<{
+        status: string; rule_code: string; owner: string | null; approved_at: string | null
+        executed_at: string | null; review_date: string | null
+      }>(
+        `SELECT status, rule_code, owner, approved_at::text, executed_at::text, review_date::text
+           FROM recommendations WHERE id = $1 FOR UPDATE`,
+        [input.id],
+      )
+      const r = rows[0]
+      if (!r) throw new UserError('Recomendação não encontrada.')
+      const owner = input.owner ?? r.owner
+      const error = validateStep({
+        from: r.status, to: input.to, today, approvedAt: r.approved_at, owner,
+        executedAt: input.executed_at, learning: input.learning, reviewDate: r.review_date,
+      })
+      if (error) throw new UserError(error)
+
+      if (input.to === 'in_progress') {
+        await client.query(
+          `UPDATE recommendations SET status = 'in_progress', owner = $2, started_at = CURRENT_DATE,
+                  execution_note = COALESCE($3, execution_note), updated_at = now() WHERE id = $1`,
+          [input.id, owner, input.note],
+        )
+      } else if (input.to === 'awaiting_review') {
+        const review = reviewDateFor(input.executed_at!, ruleMeta(r.rule_code).reviewDays)
+        await client.query(
+          `UPDATE recommendations SET status = 'awaiting_review', owner = $2, executed_at = $3::date,
+                  execution_note = COALESCE($4, execution_note), review_date = $5::date,
+                  started_at = COALESCE(started_at, $3::date), updated_at = now() WHERE id = $1`,
+          [input.id, owner, input.executed_at, input.note, review],
+        )
+        await client.query(
+          `UPDATE strategic_memory SET review_date = $2::date, updated_at = now()
+            WHERE recommendation_id = $1 AND outcome IS NULL`,
+          [input.id, review],
+        )
+      } else if (input.to === 'completed') {
+        await client.query(
+          `UPDATE recommendations SET status = 'completed', learning = $2, completed_at = now(), updated_at = now() WHERE id = $1`,
+          [input.id, input.learning],
+        )
+      } else {
+        await client.query(
+          `UPDATE recommendations SET status = 'cancelled', execution_note = COALESCE($2, execution_note),
+                  resolved_at = now(), updated_at = now() WHERE id = $1`,
+          [input.id, input.note],
+        )
+      }
+
+      await client.query(
+        `INSERT INTO recommendation_events (recommendation_id, event, note, user_id) VALUES ($1, $2, $3, $4)`,
+        [input.id, STEP_EVENT[input.to], input.learning ?? input.note ?? (input.executed_at ? `executada em ${input.executed_at}` : null), user.id],
+      )
+      await logAudit(
+        {
+          user,
+          action: `recommendation.${input.to}`,
+          entityType: 'recommendations',
+          entityId: input.id,
+          oldValue: { status: r.status },
+          newValue: { status: input.to, owner, executed_at: input.executed_at },
+          reason: input.note ?? input.learning,
+        },
+        client,
+      )
+    })
+    revalidatePath('/', 'layout')
+    return { ok: true, message: 'Registrado.' }
+  } catch (e) {
+    if (e instanceof UserError) return { ok: false, message: e.message }
+    if ((e as { code?: string }).code === '42703') return { ok: false, message: 'Rode a migração 022 no banco para registrar execuções.' }
     return failure(e)
   }
 }

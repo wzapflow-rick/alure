@@ -50,16 +50,31 @@ export function SubmitButton({
   size = 'md',
   className,
   disabled,
+  name,
+  value,
+  formNoValidate,
 }: {
   children: React.ReactNode
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
   size?: 'sm' | 'md' | 'icon'
   className?: string
   disabled?: boolean
+  name?: string
+  value?: string
+  formNoValidate?: boolean
 }) {
   const { pending } = useFormStatus()
   return (
-    <Button type="submit" variant={variant} size={size} disabled={pending || disabled} className={className}>
+    <Button
+      type="submit"
+      variant={variant}
+      size={size}
+      disabled={pending || disabled}
+      className={className}
+      name={name}
+      value={value}
+      formNoValidate={formNoValidate}
+    >
       {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
       {children}
     </Button>
