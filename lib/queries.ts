@@ -101,12 +101,28 @@ export type RecommendationRow = {
   status: string
   updated_at: string
   sku: string | null
+  owner?: string | null
+  approved_at?: string | null
+  executed_at?: string | null
+  execution_note?: string | null
+  review_date?: string | null
+  learning?: string | null
+  outcome?: string | null
 }
 
-const REC_SELECT = `SELECT r.id, r.rule_code, r.kind, r.severity, r.action_type, r.confidence, r.priority_score,
+const REC_COLUMNS = `r.id, r.rule_code, r.kind, r.severity, r.action_type, r.confidence, r.priority_score,
        r.product_id, r.experiment_id, r.title, r.issue, r.evidence, r.evidence_data, r.recommendation, r.reason, r.objective,
-       r.status, r.updated_at, p.sku
+       r.status, r.updated_at, p.sku`
+
+const REC_SELECT = `SELECT ${REC_COLUMNS}
   FROM recommendations r LEFT JOIN products p ON p.id = r.product_id`
+
+/** Lifecycle columns from migration 022 + measured outcome from the linked memory record. */
+const REC_SELECT_LIFECYCLE = `SELECT ${REC_COLUMNS},
+       r.owner, r.approved_at::text, r.executed_at::text, r.execution_note, r.review_date::text, r.learning, mo.outcome
+  FROM recommendations r LEFT JOIN products p ON p.id = r.product_id
+  LEFT JOIN LATERAL (SELECT outcome FROM strategic_memory sm WHERE sm.recommendation_id = r.id
+                      ORDER BY sm.id DESC LIMIT 1) mo ON true`
 
 export async function listRecommendations(opts: { kinds?: string[]; statuses?: string[]; productId?: number; limit?: number }) {
   const where: string[] = []
@@ -124,11 +140,14 @@ export async function listRecommendations(opts: { kinds?: string[]; statuses?: s
     where.push(`r.product_id = $${params.length}`)
   }
   params.push(opts.limit ?? 50)
-  return query<RecommendationRow>(
-    `${REC_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     ORDER BY r.priority_score DESC, r.updated_at DESC LIMIT $${params.length}`,
-    params,
-  )
+  const tail = `${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY r.priority_score DESC, r.updated_at DESC LIMIT $${params.length}`
+  try {
+    return await query<RecommendationRow>(`${REC_SELECT_LIFECYCLE} ${tail}`, params)
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42703') throw e
+    return query<RecommendationRow>(`${REC_SELECT} ${tail}`, params)
+  }
 }
 
 export async function listAlerts(statuses: string[] = ['open', 'acknowledged'], limit = 100) {

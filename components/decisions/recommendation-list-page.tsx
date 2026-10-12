@@ -7,8 +7,10 @@ import { cn } from '@/lib/utils'
 
 const TABS = [
   { key: 'open', label: 'Abertas', statuses: ['open'] },
-  { key: 'approved', label: 'Aceitas', statuses: ['approved'] },
-  { key: 'dismissed', label: 'Descartadas', statuses: ['dismissed'] },
+  { key: 'approved', label: 'Em execução', statuses: ['approved', 'in_progress'] },
+  { key: 'review', label: 'Em avaliação', statuses: ['awaiting_review'] },
+  { key: 'completed', label: 'Concluídas', statuses: ['completed'] },
+  { key: 'dismissed', label: 'Descartadas', statuses: ['dismissed', 'cancelled', 'rejected'] },
   { key: 'resolved', label: 'Resolvidas', statuses: ['resolved'] },
 ]
 
@@ -33,7 +35,7 @@ export async function RecommendationListPage({
   return (
     <>
       <PageHeader title={title} description={description} action={<RunEngineButton />} />
-      <nav aria-label="Filtro de status" className="flex gap-1 border-b border-border">
+      <nav aria-label="Filtro de status" className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 md:mx-0 md:px-0">
         {TABS.map((t) => (
           <Link
             key={t.key}

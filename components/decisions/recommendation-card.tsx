@@ -4,6 +4,10 @@ import { ACTION_TYPE_LABEL, CONFIDENCE_LABEL, SEVERITY_LABEL, severityTone } fro
 import { Disclosure } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
 import { updateRecommendation } from '@/lib/actions/decisions'
+import { ExecutionPanel } from '@/components/decisions/execution-panel'
+import { canReopen } from '@/lib/engine/lifecycle'
+
+const LIFECYCLE_VISIBLE = new Set(['approved', 'in_progress', 'awaiting_review', 'completed', 'cancelled'])
 import { formatDateTime, formatTestCode } from '@/lib/format'
 import type { RecommendationRow } from '@/lib/queries'
 import { cn } from '@/lib/utils'
@@ -139,6 +143,8 @@ export function RecommendationCard({ rec, rank }: { rec: RecommendationRow; rank
               </div>
             </dl>
 
+            {LIFECYCLE_VISIBLE.has(rec.status) ? <ExecutionPanel rec={rec} /> : null}
+
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
               <div className="flex items-center gap-1">
                 {rec.status === 'open' ? (
@@ -163,7 +169,7 @@ export function RecommendationCard({ rec, rank }: { rec: RecommendationRow; rank
                       }
                     />
                   </>
-                ) : (
+                ) : canReopen(rec.status) ? (
                   <InlineAction
                     action={updateRecommendation}
                     fields={{ id: rec.id, status: 'open' }}
@@ -173,7 +179,7 @@ export function RecommendationCard({ rec, rank }: { rec: RecommendationRow; rank
                       </>
                     }
                   />
-                )}
+                ) : null}
               </div>
               {href ? (
                 <Link href={href} className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
