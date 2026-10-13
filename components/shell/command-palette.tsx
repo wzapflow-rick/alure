@@ -18,6 +18,7 @@ const PAGES = [
   { label: 'Produtos', href: '/produtos' },
   { label: 'Testes', href: '/testes' },
   { label: 'Alertas', href: '/alertas' },
+  { label: 'Boletos', href: '/boletos' },
   { label: 'Leituras', href: '/leituras' },
   { label: 'Memória', href: '/memoria' },
   { label: 'Assistente', href: '/assistente' },

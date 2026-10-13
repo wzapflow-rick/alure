@@ -11,6 +11,7 @@ export type AITask =
   | 'STRATEGIC_ANALYSIS'
   | 'SIMPLE_SUMMARY'
   | 'CONNECTION_TEST'
+  | 'DOCUMENT_EXTRACTION'
 
 export type ModelTier = 'fast' | 'default' | 'deep'
 
@@ -39,6 +40,7 @@ const TASK_TIER: Record<AITask, ModelTier> = {
   STRATEGIC_ANALYSIS: 'deep',
   SIMPLE_SUMMARY: 'fast',
   CONNECTION_TEST: 'fast',
+  DOCUMENT_EXTRACTION: 'fast',
 }
 
 function modelFor(tier: ModelTier) {
