@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Badge } from '@/components/ui/badges'
 import { Disclosure, EmptyState, Field, Input, Panel, Section, Stat } from '@/components/ui/primitives'
@@ -88,6 +89,15 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
               </li>
             ))}
           </ul>
+          {skips.some((s) => s.reason === 'frio_sem_duas_etapas') ? (
+            <p className="mt-3 max-w-prose text-xs leading-relaxed text-muted-foreground">
+              A barreira de contatos frios está ligada no número <span className="font-medium text-foreground">{campaign.instance_label}</span>, que é o que envia esta campanha.{' '}
+              <Link href={`/disparos/protecoes?n=${campaign.instance_id}`} className="font-medium text-primary underline underline-offset-2">
+                Abrir as proteções de {campaign.instance_label}
+              </Link>
+              , desmarcar a opção e salvar. Os contatos já pulados não voltam sozinhos: depois disso, recomece a campanha.
+            </p>
+          ) : null}
         </Section>
       ) : null}
 
