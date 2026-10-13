@@ -1,11 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { Plus, ShieldAlert, ShieldCheck, Smartphone } from 'lucide-react'
+import { Plus, RotateCcw, ShieldAlert, ShieldCheck, Smartphone } from 'lucide-react'
 import { Badge, Dot } from '@/components/ui/badges'
 import { EmptyState, Panel, Section, Stat, buttonVariants } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
 import { AutoRefresh } from '@/components/broadcast/auto-refresh'
-import { setPauseAll } from '@/lib/actions/broadcast'
+import { restartCampaign, setPauseAll } from '@/lib/actions/broadcast'
 import { insideWindow, localClock } from '@/lib/broadcast/engine'
 import { CAMPAIGN_STATUS, EVENT_LABEL, PAUSE_REASON, formatDateTime, relativeMinutes } from '@/lib/broadcast/labels'
 import { contactStats, instanceSummary, listCampaigns, listEvents } from '@/lib/broadcast/queries'
@@ -140,9 +140,10 @@ export default async function BroadcastPage() {
               {campaigns.map((c) => {
                 const done = c.sent + c.failed + c.skipped
                 const pct = c.total ? Math.round((done / c.total) * 100) : 0
+                const finished = c.status === 'completed' || c.status === 'cancelled'
                 return (
-                  <li key={c.id}>
-                    <Link href={`/disparos/${c.id}`} className="flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-surface-2/50">
+                  <li key={c.id} className="flex flex-col sm:flex-row sm:items-center">
+                    <Link href={`/disparos/${c.id}`} className="flex min-w-0 flex-1 flex-col gap-2 px-5 py-4 transition-colors hover:bg-surface-2/50">
                       <div className="flex items-center justify-between gap-3">
                         <span className="truncate text-sm font-medium">{c.name}</span>
                         <Badge tone={CAMPAIGN_STATUS[c.status].tone}>{CAMPAIGN_STATUS[c.status].label}</Badge>
@@ -156,6 +157,20 @@ export default async function BroadcastPage() {
                         {c.status === 'paused' && c.pause_reason ? ` · ${PAUSE_REASON[c.pause_reason] ?? c.pause_reason}` : ''}
                       </p>
                     </Link>
+                    {finished ? (
+                      <div className="px-5 pb-4 sm:py-4 sm:pl-0">
+                        <InlineAction
+                          action={restartCampaign}
+                          fields={{ id: c.id }}
+                          label={
+                            <>
+                              <RotateCcw className="size-4" aria-hidden /> Recomeçar
+                            </>
+                          }
+                          variant="secondary"
+                        />
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}
