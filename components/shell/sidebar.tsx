@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   Package,
+  Receipt,
   ScrollText,
   Settings,
   Sparkles,
@@ -45,6 +46,10 @@ const GROUPS: { label: string | null; items: NavItem[] }[] = [
       { href: '/alertas', label: 'Alertas', icon: Bell },
       { href: '/venda-direta', label: 'Venda direta', icon: Store },
     ],
+  },
+  {
+    label: 'Financeiro',
+    items: [{ href: '/boletos', label: 'Boletos', icon: Receipt }],
   },
   {
     label: 'Inteligência',

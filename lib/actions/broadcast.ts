@@ -286,6 +286,77 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
   redirect(`/disparos/${id}`)
 }
 
+/** Creates a fresh draft with the same messages, number, list and options as a finished campaign. */
+export async function restartCampaign(_: ActionState, fd: FormData): Promise<ActionState> {
+  let id: string
+  try {
+    const user = await dspAuthed()
+    const original = await ownedCampaign(user.companyId, fd.get('id'))
+    const instance = await ownedInstance(user.companyId, original.instance_id)
+    const { rows: src } = await pool.query<{ name: string; tag_filter: string | null; two_step: boolean; total: number; status: string }>(
+      `SELECT c.name, c.tag_filter, c.two_step, c.status,
+              (SELECT COUNT(*)::int FROM broadcast_messages m WHERE m.campaign_id = c.id) AS total
+         FROM broadcast_campaigns c WHERE c.id = $1`,
+      [original.id],
+    )
+    const c = src[0]
+    if (!['completed', 'cancelled'].includes(c.status)) return { ok: false, message: 'Só dá para recomeçar campanhas concluídas ou canceladas.' }
+
+    const s = await loadSettings(instance.id)
+    const baseName = c.name.replace(/\s+\(recomeço( \d+)?\)$/, '')
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const { rows: n } = await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM broadcast_campaigns WHERE company_id = $1 AND name LIKE $2`,
+        [user.companyId, `${baseName} (recomeço%`],
+      )
+      const name = `${baseName} (recomeço${n[0].n ? ` ${n[0].n + 1}` : ''})`.slice(0, 80)
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO broadcast_campaigns (company_id, instance_id, name, templates, link_url, append_link, opt_out_footer, tag_filter, batch_target, two_step, followup_templates)
+         SELECT company_id, instance_id, $2, templates, link_url, append_link, opt_out_footer, tag_filter, $3, two_step, followup_templates
+           FROM broadcast_campaigns WHERE id = $1
+         RETURNING id::text`,
+        [original.id, name, rand(s.batch_min, s.batch_max)],
+      )
+      id = rows[0].id
+      const audience = await client.query(
+        `INSERT INTO broadcast_messages (campaign_id, contact_id, position)
+         SELECT $1, c.id, row_number() OVER (ORDER BY random())
+           FROM broadcast_contacts c
+          WHERE c.company_id = $5 AND NOT c.opted_out AND c.wa_exists IS NOT FALSE
+            AND (c.last_sent_at IS NULL OR c.last_sent_at < now() - make_interval(days => $2))
+            AND ($3::text IS NULL OR $3 = ANY(c.tags))
+            AND NOT EXISTS (
+              SELECT 1 FROM broadcast_messages m JOIN broadcast_campaigns oc ON oc.id = m.campaign_id
+               WHERE m.contact_id = c.id AND m.status = 'pending' AND oc.status IN ('draft','running','paused'))
+          ORDER BY random() LIMIT $4`,
+        [id, s.contact_cooldown_days, c.tag_filter, Math.min(Math.max(c.total, 1), MAX_RECIPIENTS), user.companyId],
+      )
+      if (!audience.rowCount) {
+        await client.query('ROLLBACK')
+        return { ok: false, message: 'Nenhum contato elegível agora (descadastrados, sem WhatsApp, recém-contatados ou já em outra campanha ficam de fora).' }
+      }
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw e
+    } finally {
+      client.release()
+    }
+    await logEvent(
+      { companyId: user.companyId, instanceId: instance.id },
+      id,
+      'criada',
+      `Campanha recomeçada a partir de "${c.name}", com as mesmas mensagens e configurações, pelo ${instance.label}.`,
+    )
+  } catch (e) {
+    return failure(e)
+  }
+  refresh()
+  redirect(`/disparos/${id}`)
+}
+
 async function startOrResume(id: string, instanceId: string) {
   const s = await loadSettings(instanceId)
   if (s.paused_all) throw new Error('PAUSE_ALL')
