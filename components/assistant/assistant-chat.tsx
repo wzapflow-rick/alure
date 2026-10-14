@@ -106,10 +106,10 @@ function UserMessage({ message }: { message: UIMessage }) {
   })
   const text = message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n').trim()
   return (
-    <div className="ml-auto flex max-w-[88%] flex-col items-end gap-2 sm:max-w-[75%]">
+    <div className="ml-auto flex min-w-0 max-w-[85%] flex-col items-end gap-2 sm:max-w-[75%]">
       {chips.length ? <div className="flex max-w-full flex-wrap justify-end gap-2">{chips}</div> : null}
       {text ? (
-        <div className="whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] leading-relaxed text-primary-foreground sm:text-sm">
+        <div className="max-w-full whitespace-pre-wrap rounded-2xl [overflow-wrap:anywhere] rounded-br-md bg-primary px-4 py-2.5 text-[15px] leading-relaxed text-primary-foreground sm:text-sm">
           {text}
         </div>
       ) : null}
@@ -172,10 +172,10 @@ function ToolSteps({ parts, running }: { parts: ToolPart[]; running: boolean }) 
 function AssistantAvatar() {
   return (
     <span
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20"
+      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20 sm:size-8"
       aria-hidden
     >
-      <Sparkles className="size-4" />
+      <Sparkles className="size-3.5 sm:size-4" />
     </span>
   )
 }
@@ -183,10 +183,12 @@ function AssistantAvatar() {
 function AssistantMessage({ message, running }: { message: UIMessage; running: boolean }) {
   const tools = message.parts.filter((p) => p.type.startsWith('tool-')) as ToolPart[]
   return (
-    <div className="flex min-w-0 gap-3">
-      <AssistantAvatar />
-      <div className="flex min-w-0 flex-1 flex-col gap-3 pt-1">
-        <span className="sr-only">Assistente:</span>
+    <div className="flex w-full min-w-0 flex-col gap-2.5 sm:flex-row sm:gap-3">
+      <div className="flex items-center gap-2">
+        <AssistantAvatar />
+        <span className="text-xs font-medium text-muted-foreground sm:sr-only">Assistente</span>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-3 sm:pt-1">
         <ToolSteps parts={tools} running={running} />
         {message.parts.map((p, i) => (p.type === 'text' && p.text ? <Markdown key={i} text={p.text} /> : null))}
       </div>
@@ -211,7 +213,7 @@ function EmptyState({ onPick }: { onPick: (s: string) => void }) {
             key={s}
             type="button"
             onClick={() => onPick(s)}
-            className="rounded-xl border border-border bg-surface px-4 py-3 text-left text-sm leading-snug text-foreground/80 transition-colors hover:border-primary/60 hover:text-foreground"
+            className="min-h-11 rounded-xl border border-border bg-surface px-4 py-3 text-left text-sm leading-snug text-foreground/80 transition-colors hover:border-primary/60 hover:text-foreground"
           >
             {s}
           </button>
@@ -231,6 +233,13 @@ export function AssistantChat({
   const router = useRouter()
   const fileInput = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
+  function fitHeight(el: HTMLTextAreaElement | null) {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [reading, setReading] = useState(false)
@@ -297,11 +306,12 @@ export function AssistantChat({
     })
     setInput('')
     setAttachments([])
+    if (textRef.current) textRef.current.style.height = ''
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-14rem)] flex-col">
-      <div className="flex flex-1 flex-col gap-8 pb-6" aria-live="polite">
+    <div className="flex min-h-[calc(100dvh-14rem)] w-full min-w-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col gap-7 pb-4 sm:gap-8 sm:pb-6" aria-live="polite">
         {messages.length === 0 ? <EmptyState onPick={send} /> : null}
         {messages.map((m) =>
           m.role === 'user' ? (
@@ -331,7 +341,7 @@ export function AssistantChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="sticky bottom-0 -mx-4 bg-gradient-to-t from-background via-background to-background/0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:mx-0 sm:px-0">
+      <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-background via-background to-background/0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-6 sm:mx-0 sm:px-0 sm:pb-4">
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -342,10 +352,10 @@ export function AssistantChat({
             e.preventDefault()
             void addFiles(e.dataTransfer.files)
           }}
-          className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-lg shadow-black/5 transition-colors focus-within:border-primary/60"
+          className="flex w-full min-w-0 flex-col gap-1 rounded-[1.6rem] border border-border bg-surface p-1 shadow-lg shadow-black/10 transition-colors focus-within:border-primary/60"
         >
           {attachments.length || reading ? (
-            <div className="flex flex-wrap gap-2 px-1 pt-1">
+            <div className="flex min-w-0 flex-wrap gap-2 px-2 pt-2">
               {attachments.map((a, i) => (
                 <AttachmentChip
                   key={`${a.name}-${i}`}
@@ -363,25 +373,7 @@ export function AssistantChat({
               ) : null}
             </div>
           ) : null}
-          <label htmlFor="assistant-input" className="sr-only">
-            Pergunta
-          </label>
-          <textarea
-            id="assistant-input"
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return
-                e.preventDefault()
-                send(input)
-              }
-            }}
-            placeholder={attachments.length ? 'O que quer saber sobre o anexo?' : 'Pergunte sobre vendas, Ads, preços…'}
-            className="max-h-48 min-h-11 w-full resize-none bg-transparent px-2 py-2 text-base leading-relaxed outline-none [field-sizing:content] placeholder:text-muted-foreground sm:text-sm"
-          />
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-end gap-1">
             <input
               ref={fileInput}
               type="file"
@@ -398,16 +390,37 @@ export function AssistantChat({
               onClick={() => fileInput.current?.click()}
               aria-label="Anexar arquivo"
               title="Anexar PDF, imagem, Excel, Word, CSV ou TXT"
-              className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground disabled:opacity-50"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground disabled:opacity-50 sm:size-10"
             >
-              <Paperclip className="size-4" aria-hidden />
-              <span className="hidden sm:inline">Anexar</span>
+              <Paperclip className="size-5 sm:size-4" aria-hidden />
             </button>
+            <label htmlFor="assistant-input" className="sr-only">
+              Pergunta
+            </label>
+            <textarea
+              ref={textRef}
+              id="assistant-input"
+              rows={1}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value)
+                fitHeight(e.target)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                  e.preventDefault()
+                  send(input)
+                }
+              }}
+              placeholder={attachments.length ? 'Pergunte sobre o anexo…' : 'Pergunte sobre vendas, Ads…'}
+              className="block max-h-40 min-h-11 w-0 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base leading-6 outline-none placeholder:text-muted-foreground sm:min-h-10 sm:py-2 sm:text-sm"
+            />
             <button
               type="submit"
               disabled={!canSend}
               aria-label="Enviar"
-              className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30 sm:size-10"
             >
               {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
             </button>

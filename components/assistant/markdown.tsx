@@ -48,7 +48,7 @@ const components: Components = {
 
 export function Markdown({ text }: { text: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-3 break-words text-[15px] leading-relaxed text-foreground/90 sm:text-sm">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-3 text-[15px] [overflow-wrap:anywhere] leading-relaxed text-foreground/90 sm:text-sm">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>

@@ -78,7 +78,7 @@ export default async function AssistantPage({ searchParams }: { searchParams: Pr
           <code className="font-mono text-xs">db/003_assistant_memory.sql</code> no pgAdmin para ativar.
         </p>
       ) : null}
-      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
         <div className="flex items-center gap-2 lg:hidden">
           <details className="group relative min-w-0 flex-1">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
