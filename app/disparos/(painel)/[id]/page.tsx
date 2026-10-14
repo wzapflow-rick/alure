@@ -7,7 +7,7 @@ import { ActionForm, InlineAction, SubmitButton } from '@/components/forms/actio
 import { AutoRefresh } from '@/components/broadcast/auto-refresh'
 import { cancelCampaign, pauseCampaignAction, sendCampaignTest, startCampaign } from '@/lib/actions/broadcast'
 import { CAMPAIGN_STATUS, EVENT_LABEL, MESSAGE_STATUS, PAUSE_REASON, SKIP_REASON, formatDateTime } from '@/lib/broadcast/labels'
-import { campaignDetail, getCampaign } from '@/lib/broadcast/queries'
+import { campaignDetail, getCampaign, listNameForTag } from '@/lib/broadcast/queries'
 import { formatPhone } from '@/lib/broadcast/text'
 import { requireDspUser } from '@/lib/dsp/session'
 
@@ -18,7 +18,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
   const user = await requireDspUser()
   const campaign = await getCampaign(user.companyId, id)
   if (!campaign) notFound()
-  const { skips, recent, events } = await campaignDetail(user.companyId, id)
+  const [{ skips, recent, events }, listName] = await Promise.all([
+    campaignDetail(user.companyId, id),
+    listNameForTag(user.companyId, campaign.tag_filter),
+  ])
   const status = CAMPAIGN_STATUS[campaign.status]
   const replyRate = campaign.sent ? Math.round((campaign.replied / campaign.sent) * 100) : 0
   const editable = campaign.status === 'draft' || campaign.status === 'paused' || campaign.status === 'running'
@@ -37,7 +40,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ id: s
             <p className="text-xs text-muted-foreground">
               {campaign.status === 'paused' && campaign.pause_reason ? `${PAUSE_REASON[campaign.pause_reason] ?? campaign.pause_reason} · ` : ''}
               {campaign.status === 'running' && campaign.next_send_at ? `Próximo envio: ${formatDateTime(campaign.next_send_at)} · ` : ''}
-              {campaign.templates.length} variações{campaign.tag_filter ? ` · público: ${campaign.tag_filter}` : ''}
+              {campaign.templates.length} variações{` · lista: ${listName ?? campaign.tag_filter ?? 'todos os contatos'}`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

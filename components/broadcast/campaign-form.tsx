@@ -31,7 +31,7 @@ export function CampaignForm({
   instances,
 }: {
   defaultLink: string
-  tags: { tag: string; n: number }[]
+  tags: { tag: string; n: number; label?: string | null }[]
   varKeys?: string[]
   instances: { id: string; label: string }[]
 }) {
@@ -43,6 +43,8 @@ export function CampaignForm({
   const [footer, setFooter] = useState(true)
   const [preview, setPreview] = useState<string | null>(null)
 
+  const prospectLists = tags.filter((t) => t.label)
+  const importedTags = tags.filter((t) => !t.label)
   const combos = templates.reduce((sum, t) => sum + (t.trim() ? countCombinations(t) : 0), 0)
   const filled = templates.filter((t) => t.trim()).length
   const openerHasLink = twoStep && templates.some((t) => /\{link\}|https?:\/\//i.test(t))
@@ -84,14 +86,30 @@ export function CampaignForm({
             ))}
           </Select>
         </Field>
-        <Field label="Público" htmlFor="tag" hint="Só contatos elegíveis entram: quem saiu, não tem WhatsApp ou foi contatado há pouco fica de fora.">
-          <Select id="tag" name="tag" defaultValue="">
-            <option value="">Todos os contatos</option>
-            {tags.map((t) => (
-              <option key={t.tag} value={t.tag}>
-                {t.tag} ({t.n})
-              </option>
-            ))}
+        <Field label="Lista" htmlFor="tag" hint="Só contatos elegíveis entram: quem saiu, não tem WhatsApp ou foi contatado há pouco fica de fora.">
+          <Select id="tag" name="tag" required defaultValue="">
+            <option value="" disabled>
+              Escolha a lista
+            </option>
+            {prospectLists.length ? (
+              <optgroup label="Listas da Prospecção">
+                {prospectLists.map((t) => (
+                  <option key={t.tag} value={t.tag}>
+                    {t.label} ({t.n})
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {importedTags.length ? (
+              <optgroup label="Etiquetas importadas">
+                {importedTags.map((t) => (
+                  <option key={t.tag} value={t.tag}>
+                    {t.tag} ({t.n})
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            <option value="*">Todos os contatos</option>
           </Select>
         </Field>
         <Field label="Link (opcional)" htmlFor="link_url" hint="Usado no lugar de {link}.">

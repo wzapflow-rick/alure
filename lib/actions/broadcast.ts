@@ -234,7 +234,8 @@ export async function createCampaign(_: ActionState, fd: FormData): Promise<Acti
     const linkUrl = v.link_url ? v.link_url : null
 
     const s = await loadSettings(instance.id)
-    const tag = v.tag ? v.tag.toLowerCase() : null
+    if (!v.tag) return { ok: false, message: 'Escolha a lista que vai receber a campanha.' }
+    const tag = v.tag === '*' ? null : v.tag.toLowerCase()
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
