@@ -56,6 +56,162 @@ export async function fetchAdvertiser(accessToken: string) {
   return { advertiserId: String(adv.advertiser_id), siteId: adv.site_id, name: adv.advertiser_name ?? null }
 }
 
+export const FULL_METRICS = [
+  'clicks', 'prints', 'ctr', 'cost', 'cpc', 'acos', 'roas', 'cvr', 'sov',
+  'organic_units_quantity', 'organic_units_amount', 'organic_items_quantity',
+  'direct_items_quantity', 'indirect_items_quantity', 'advertising_items_quantity',
+  'direct_units_quantity', 'indirect_units_quantity', 'units_quantity',
+  'direct_amount', 'indirect_amount', 'total_amount',
+] as const
+
+const CAMPAIGN_DETAIL_METRICS = [
+  ...FULL_METRICS,
+  'impression_share', 'top_impression_share', 'lost_impression_share_by_budget', 'lost_impression_share_by_ad_rank', 'acos_benchmark',
+] as const
+
+type Metrics = Record<string, number | null>
+
+export type AdsCampaign = {
+  id: number
+  name: string
+  status: string
+  strategy?: string
+  budget?: number
+  automatic_budget?: boolean
+  roas_target?: number
+  acos_target?: number
+  date_created?: string
+  last_updated?: string
+  metrics?: Metrics
+}
+
+export type AdsItem = {
+  item_id: string
+  campaign_id: number
+  title: string
+  status: string
+  price?: number
+  current_level?: string
+  recommended?: boolean
+  buy_box_winner?: boolean
+  catalog_listing?: boolean
+  listing_type_id?: string
+  logistic_type?: string
+  permalink?: string
+  metrics?: Metrics
+  metrics_summary?: Metrics
+}
+
+/** Campaigns with budget, strategy, ROAS target and aggregated metrics for the window, plus account summary. */
+export async function fetchCampaigns(
+  accessToken: string,
+  advertiser: { advertiserId: string; siteId: string },
+  range: DateRange,
+  status?: 'active' | 'paused',
+) {
+  const campaigns: AdsCampaign[] = []
+  let summary: Metrics | null = null
+  for (let offset = 0; offset < 1000; offset += PAGE) {
+    const qs = new URLSearchParams({
+      limit: String(PAGE),
+      offset: String(offset),
+      date_from: range.from,
+      date_to: range.to,
+      metrics: FULL_METRICS.join(','),
+      metrics_summary: 'true',
+    })
+    if (status) qs.set('filters[status]', status)
+    const page = await adsGet<{ paging?: { total?: number }; results?: AdsCampaign[]; metrics_summary?: Metrics }>(
+      `/advertising/${advertiser.siteId}/advertisers/${advertiser.advertiserId}/product_ads/campaigns/search?${qs}`,
+      accessToken,
+      '2',
+    )
+    const results = page.results ?? []
+    campaigns.push(...results)
+    summary ??= page.metrics_summary ?? null
+    if (results.length < PAGE || offset + PAGE >= (page.paging?.total ?? 0)) break
+  }
+  return { campaigns, summary }
+}
+
+/** One campaign with impression share, lost share by budget/rank and ACOS benchmark. */
+export async function fetchCampaignDetail(accessToken: string, siteId: string, campaignId: string, range: DateRange) {
+  const qs = new URLSearchParams({ date_from: range.from, date_to: range.to, metrics: CAMPAIGN_DETAIL_METRICS.join(',') })
+  return adsGet<AdsCampaign & { currency_id?: string }>(
+    `/advertising/${siteId}/product_ads/campaigns/${encodeURIComponent(campaignId)}?${qs}`,
+    accessToken,
+    '2',
+  )
+}
+
+/** Daily metrics for one campaign. */
+export async function fetchCampaignDaily(
+  accessToken: string,
+  advertiser: { advertiserId: string; siteId: string },
+  campaignId: string,
+  range: DateRange,
+) {
+  const qs = new URLSearchParams({
+    limit: String(PAGE),
+    offset: '0',
+    date_from: range.from,
+    date_to: range.to,
+    metrics: FULL_METRICS.join(','),
+    aggregation_type: 'DAILY',
+    'filters[campaign_ids]': campaignId,
+  })
+  const page = await adsGet<{ results?: ({ date: string } & Metrics)[] }>(
+    `/advertising/${advertiser.siteId}/advertisers/${advertiser.advertiserId}/product_ads/campaigns/search?${qs}`,
+    accessToken,
+    '2',
+  )
+  return page.results ?? []
+}
+
+/** Ads (listings) with metrics for the window, optionally filtered by campaign or status. */
+export async function fetchAdsItems(
+  accessToken: string,
+  advertiser: { advertiserId: string; siteId: string },
+  range: DateRange,
+  opts: { campaignId?: string; status?: string; max?: number } = {},
+) {
+  const max = Math.min(opts.max ?? 300, 1000)
+  const items: AdsItem[] = []
+  let summary: Metrics | null = null
+  let total = 0
+  for (let offset = 0; offset < max; offset += PAGE) {
+    const qs = new URLSearchParams({
+      limit: String(PAGE),
+      offset: String(offset),
+      date_from: range.from,
+      date_to: range.to,
+      metrics: FULL_METRICS.join(','),
+      metrics_summary: 'true',
+    })
+    if (opts.campaignId) qs.set('filters[campaign_id]', opts.campaignId)
+    if (opts.status) qs.set('filters[statuses]', opts.status)
+    const page = await adsGet<{ paging?: { total?: number }; results?: AdsItem[]; metrics_summary?: Metrics }>(
+      `/advertising/${advertiser.siteId}/advertisers/${advertiser.advertiserId}/product_ads/ads/search?${qs}`,
+      accessToken,
+      '2',
+    )
+    const results = page.results ?? []
+    items.push(...results)
+    summary ??= page.metrics_summary ?? null
+    total = page.paging?.total ?? total
+    if (results.length < PAGE || offset + PAGE >= total) break
+  }
+  return { items, summary, total }
+}
+
+/** Single ad detail with its metrics summary. */
+export async function fetchAdDetail(accessToken: string, siteId: string, itemId: string, range?: DateRange) {
+  const qs = range
+    ? `?${new URLSearchParams({ date_from: range.from, date_to: range.to, metrics: FULL_METRICS.join(',') })}`
+    : ''
+  return adsGet<AdsItem>(`/advertising/${siteId}/product_ads/ads/${encodeURIComponent(itemId)}${qs}`, accessToken, '2')
+}
+
 type DailyResult = { date: string } & Partial<Record<(typeof ADS_METRICS)[number], number | null>>
 
 /** Account-level daily totals; rows with the same date are summed in case the API splits them. */

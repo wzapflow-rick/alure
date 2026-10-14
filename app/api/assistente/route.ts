@@ -41,6 +41,61 @@ import {
 import { prepareModel, recordUsage } from '@/lib/ai/orchestrator'
 import { describeAIError } from '@/lib/ai/user-error'
 import { refreshTodayIfStale, type FreshnessResult } from '@/lib/sync/freshen'
+import { connection as meliConnection } from '@/lib/integrations/mercado-livre'
+import {
+  fetchAdDetail,
+  fetchAdsItems,
+  fetchAdvertiser,
+  fetchCampaignDaily,
+  fetchCampaignDetail,
+  fetchCampaigns,
+  type AdsItem,
+} from '@/lib/integrations/meli-ads'
+
+function adsRange(dias: number, ate: string) {
+  const end = new Date(`${ate}T12:00:00Z`)
+  end.setUTCDate(end.getUTCDate() - 1)
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - (Math.min(dias, 89) - 1))
+  return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) }
+}
+
+async function meliAdvertiser() {
+  const conn = await meliConnection()
+  const advertiser = await fetchAdvertiser(conn.accessToken)
+  return { token: conn.accessToken, advertiser }
+}
+
+function adsError(err: unknown) {
+  return { erro: err instanceof Error ? err.message : 'Falha ao consultar a Publicidade do Mercado Livre.' }
+}
+
+function slimAd(a: AdsItem) {
+  const m = a.metrics ?? a.metrics_summary ?? {}
+  return {
+    item: a.item_id,
+    titulo: a.title,
+    campanha: a.campaign_id,
+    status: a.status,
+    preco: a.price,
+    nivel: a.current_level,
+    recomendado: a.recommended,
+    ganhando_catalogo: a.buy_box_winner,
+    investimento: m.cost,
+    cliques: m.clicks,
+    impressoes: m.prints,
+    ctr: m.ctr,
+    cpc: m.cpc,
+    acos: m.acos,
+    roas: m.roas,
+    cvr: m.cvr,
+    unid_diretas: m.direct_units_quantity,
+    unid_indiretas: m.indirect_units_quantity,
+    unid_organicas: m.organic_units_quantity,
+    receita_ads: m.total_amount,
+    receita_organica: m.organic_units_amount,
+  }
+}
 
 export const maxDuration = 60
 
@@ -98,6 +153,12 @@ FONTE DA VERDADE
 - Antes de responder qualquer pergunta sobre vendas, pedidos, anúncios, preços, estoque, taxas, testes, integrações ou histórico, CONSULTE as ferramentas. Não responda de cabeça.
 - NUNCA peça ao usuário um dado que o sistema consegue buscar (vendas, pedidos, anúncios, preços, estoque, taxas, status da integração). Busque primeiro. Só pergunte o que realmente não existe no banco.
 - Nunca invente números. Se a ferramenta não retornar o dado, diga "não tenho esse dado no banco" e diga o que precisa ser sincronizado ou cadastrado.
+
+PUBLICIDADE (Product Ads do Mercado Livre)
+- Você TEM acesso total à aba de Publicidade da conta, ao vivo pela API: campanhas, orçamento, estratégia, ROAS objetivo, investimento, cliques, impressões, CTR, CPC, ACOS, ROAS, CVR, share of voice, parcela de impressões perdida por orçamento/ranking e métricas por anúncio.
+- Para qualquer pergunta sobre Ads, campanhas, ACOS, ROAS, TACOS, investimento ou verba: chame "publicidadeCampanhas" e, quando falar de produtos, "publicidadeAnuncios". Use "publicidadeCampanhaDetalhe" para diagnosticar uma campanha e "publicidadeHistorico" para tendência diária e TACOS.
+- NUNCA peça print ou exportação do painel de Publicidade. Só se a ferramenta retornar "erro", repasse a mensagem exata e diga como resolver.
+- Os dados do ML fecham às 10h (Brasília); o dia de hoje não entra nas métricas de Ads.
 
 MEMÓRIA
 - Tudo que é conversado fica salvo. Use "buscarConversas" quando o usuário se referir a algo já falado ("como eu disse", "aquele produto", "o que combinamos").
@@ -352,6 +413,137 @@ function buildTools(user: SessionUser, conversationId: string) {
               [termo],
             )
           : listMemory({ status: 'active', limit: 100 }),
+    }),
+    publicidadeCampanhas: tool({
+      description:
+        'AO VIVO na API do Mercado Livre (Product Ads): todas as campanhas com nome, status, estratégia, orçamento diário, ROAS/ACOS objetivo e métricas do período (investimento, cliques, impressões, CTR, CPC, ACOS, ROAS, CVR, share of voice, vendas diretas/indiretas/orgânicas, receita atribuída) + resumo da conta.',
+      inputSchema: z.object({
+        dias: z.number().int().min(1).max(90).default(30),
+        status: z.enum(['active', 'paused']).optional(),
+      }),
+      execute: async ({ dias, status }) => {
+        try {
+          const { token, advertiser } = await meliAdvertiser()
+          const periodo = adsRange(dias, today)
+          const { campaigns, summary } = await fetchCampaigns(token, advertiser, periodo, status)
+          return {
+            periodo,
+            anunciante: advertiser.name,
+            resumo_conta: summary,
+            campanhas: campaigns.map((c) => ({
+              id: c.id,
+              nome: c.name,
+              status: c.status,
+              estrategia: c.strategy,
+              orcamento_diario: c.budget,
+              orcamento_automatico: c.automatic_budget,
+              roas_objetivo: c.roas_target,
+              acos_objetivo: c.acos_target,
+              criada: c.date_created,
+              metricas: c.metrics,
+            })),
+          }
+        } catch (err) {
+          return adsError(err)
+        }
+      },
+    }),
+    publicidadeCampanhaDetalhe: tool({
+      description:
+        'AO VIVO: uma campanha de Product Ads com parcela de impressões, parcela perdida por orçamento e por ranking, ACOS benchmark e métricas diárias.',
+      inputSchema: z.object({
+        campanhaId: z.string().min(1).max(30),
+        dias: z.number().int().min(1).max(90).default(30),
+      }),
+      execute: async ({ campanhaId, dias }) => {
+        try {
+          const { token, advertiser } = await meliAdvertiser()
+          const periodo = adsRange(dias, today)
+          const [detalhe, diario] = await Promise.all([
+            fetchCampaignDetail(token, advertiser.siteId, campanhaId, periodo),
+            fetchCampaignDaily(token, advertiser, campanhaId, periodo).catch(() => []),
+          ])
+          return { periodo, detalhe, diario }
+        } catch (err) {
+          return adsError(err)
+        }
+      },
+    }),
+    publicidadeAnuncios: tool({
+      description:
+        'AO VIVO: anúncios dentro do Product Ads com métricas por anúncio (investimento, cliques, impressões, CTR, CPC, ACOS, ROAS, CVR, vendas diretas/indiretas/orgânicas, receita). Filtra por campanha, item ou termo do título. Ordena por investimento, receita, ACOS ou ROAS.',
+      inputSchema: z.object({
+        dias: z.number().int().min(1).max(90).default(30),
+        campanhaId: z.string().max(30).optional(),
+        itemId: z.string().max(30).optional().describe('ID MLB do anúncio para detalhe de um item'),
+        termo: z.string().max(80).optional(),
+        ordenarPor: z.enum(['investimento', 'receita', 'acos', 'roas']).default('investimento'),
+        limite: z.number().int().min(1).max(100).default(30),
+      }),
+      execute: async ({ dias, campanhaId, itemId, termo, ordenarPor, limite }) => {
+        try {
+          const { token, advertiser } = await meliAdvertiser()
+          const periodo = adsRange(dias, today)
+          if (itemId) {
+            return { periodo, anuncio: slimAd(await fetchAdDetail(token, advertiser.siteId, itemId.toUpperCase(), periodo)) }
+          }
+          const { items, summary, total } = await fetchAdsItems(token, advertiser, periodo, {
+            campaignId: campanhaId,
+            max: 1000,
+          })
+          const key = { investimento: 'investimento', receita: 'receita_ads', acos: 'acos', roas: 'roas' }[ordenarPor] as
+            | 'investimento'
+            | 'receita_ads'
+            | 'acos'
+            | 'roas'
+          const needle = termo?.toLowerCase()
+          const rows = items
+            .map(slimAd)
+            .filter((r) => !needle || r.titulo?.toLowerCase().includes(needle) || r.item?.toLowerCase().includes(needle))
+            .sort((a, b) => Number(b[key] ?? 0) - Number(a[key] ?? 0))
+          return { periodo, total_anuncios: total, resumo: summary, anuncios: rows.slice(0, limite) }
+        } catch (err) {
+          return adsError(err)
+        }
+      },
+    }),
+    publicidadeHistorico: tool({
+      description:
+        'Histórico diário de Product Ads salvo no banco (custo, cliques, impressões, vendas e receita atribuídas) e TACOS = investimento ÷ receita total das vendas do ML no mesmo dia.',
+      inputSchema: z.object({ dias: z.number().int().min(1).max(365).default(30) }),
+      execute: async ({ dias }) => {
+        const rows = await query(
+          `WITH ads AS (
+             SELECT am.metric_date, SUM(am.cost) AS custo, SUM(am.clicks)::int AS cliques,
+                    SUM(am.impressions)::int AS impressoes, SUM(am.attributed_sales)::int AS vendas_diretas,
+                    SUM(am.indirect_sales)::int AS vendas_indiretas, SUM(am.attributed_revenue) AS receita_ads
+               FROM advertising_metrics am
+               JOIN advertising_campaigns ac ON ac.id = am.campaign_id
+               JOIN marketplaces m ON m.id = ac.marketplace_id AND m.code = 'mercado_livre'
+              WHERE am.metric_date > $1::date - $2::int AND am.metric_date <= $1::date
+              GROUP BY am.metric_date
+           ), vendas AS (
+             SELECT sm.metric_date, SUM(sm.revenue) AS receita_total
+               FROM sales_metrics sm
+               JOIN product_channels pc ON pc.id = sm.product_channel_id
+               JOIN marketplaces m ON m.id = pc.marketplace_id AND m.code = 'mercado_livre'
+              WHERE sm.metric_date > $1::date - $2::int AND sm.metric_date <= $1::date
+              GROUP BY sm.metric_date
+           )
+           SELECT a.metric_date::text AS dia, ROUND(a.custo, 2) AS custo, a.cliques, a.impressoes,
+                  a.vendas_diretas, a.vendas_indiretas, ROUND(a.receita_ads, 2) AS receita_ads,
+                  ROUND(v.receita_total, 2) AS receita_total_ml,
+                  CASE WHEN a.receita_ads > 0 THEN ROUND(a.custo / a.receita_ads * 100, 1) END AS acos_pct,
+                  CASE WHEN v.receita_total > 0 THEN ROUND(a.custo / v.receita_total * 100, 1) END AS tacos_pct
+             FROM ads a LEFT JOIN vendas v USING (metric_date)
+            ORDER BY a.metric_date DESC`,
+          [today, dias],
+        )
+        if (!rows.length) {
+          return { aviso: 'Sem histórico de Ads no banco. Use publicidadeCampanhas para buscar ao vivo no Mercado Livre.' }
+        }
+        return { dias: rows }
+      },
     }),
     buscarConversas: tool({
       description: 'Busca em todas as conversas anteriores do usuário com o assistente.',

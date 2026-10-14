@@ -37,18 +37,18 @@ const components: Components = {
     </pre>
   ),
   table: ({ children }) => (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <table className="w-full min-w-max border-collapse text-left text-sm tabular-nums">{children}</table>
+    <div className="max-w-full overflow-x-auto rounded-lg border border-border">
+      <table className="w-full min-w-max border-collapse text-left text-[13px] tabular-nums">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="border-b border-border text-xs text-muted-foreground">{children}</thead>,
-  th: ({ children }) => <th className="px-3 py-2 font-medium first:pl-0">{children}</th>,
-  td: ({ children }) => <td className="border-b border-border/60 px-3 py-2 align-top first:pl-0">{children}</td>,
+  thead: ({ children }) => <thead className="bg-surface-2 text-xs text-muted-foreground">{children}</thead>,
+  th: ({ children }) => <th className="whitespace-nowrap px-3 py-2 font-medium">{children}</th>,
+  td: ({ children }) => <td className="border-t border-border/60 px-3 py-2 align-top">{children}</td>,
 }
 
 export function Markdown({ text }: { text: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-3 text-sm text-foreground/90">
+    <div className="flex min-w-0 flex-col gap-3 break-words text-[15px] leading-relaxed text-foreground/90 sm:text-sm">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
