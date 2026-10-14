@@ -182,11 +182,28 @@ export async function contactStats(companyId: string, cooldownDays = 30) {
 }
 
 export async function listTags(companyId: string) {
-  const { rows } = await pool.query<{ tag: string; n: number }>(
-    `SELECT t AS tag, COUNT(*)::int AS n FROM broadcast_contacts, unnest(tags) t WHERE company_id = $1 GROUP BY t ORDER BY t`,
+  const { rows } = await pool.query<{ tag: string; n: number; label: string | null }>(
+    `SELECT t.tag, t.n, l.name AS label
+       FROM (SELECT t AS tag, COUNT(*)::int AS n FROM broadcast_contacts, unnest(tags) t WHERE company_id = $1 GROUP BY t) t
+       LEFT JOIN LATERAL (SELECT name FROM prospect_lists WHERE company_id = $1 AND tag = t.tag LIMIT 1) l ON true
+      ORDER BY l.name IS NULL, l.name, t.tag`,
     [companyId],
-  )
+  ).catch(async () => {
+    const r = await pool.query<{ tag: string; n: number }>(
+      `SELECT t AS tag, COUNT(*)::int AS n FROM broadcast_contacts, unnest(tags) t WHERE company_id = $1 GROUP BY t ORDER BY t`,
+      [companyId],
+    )
+    return { rows: r.rows.map((x) => ({ ...x, label: null })) }
+  })
   return rows
+}
+
+export async function listNameForTag(companyId: string, tag: string | null) {
+  if (!tag) return null
+  const { rows } = await pool
+    .query<{ name: string }>(`SELECT name FROM prospect_lists WHERE company_id = $1 AND tag = $2 LIMIT 1`, [companyId, tag])
+    .catch(() => ({ rows: [] as { name: string }[] }))
+  return rows[0]?.name ?? null
 }
 
 /** Extra spreadsheet columns available as {variables} in the messages. */

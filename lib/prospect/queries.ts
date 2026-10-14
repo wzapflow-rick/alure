@@ -91,7 +91,10 @@ export type ProspectRow = {
 export const PROSPECT_FILTERS = ['all', 'yes', 'no', 'pending', 'no_phone', 'error'] as const
 export type ProspectFilter = (typeof PROSPECT_FILTERS)[number]
 
-export async function listProspects(companyId: string, opts: { searchId: string | null; filter: ProspectFilter; q: string }) {
+export async function listProspects(
+  companyId: string,
+  opts: { searchId: string | null; listId?: string | null; filter: ProspectFilter; q: string },
+) {
   const { rows } = await pool.query<ProspectRow>(
     `SELECT p.id::text, p.name, p.category, p.address, p.phone, p.site_whatsapp, p.website, p.rating::text, p.reviews, p.wa_status,
             EXISTS (SELECT 1 FROM broadcast_contacts b WHERE b.company_id = p.company_id AND b.phone = COALESCE(p.site_whatsapp, p.phone)) AS in_base,
@@ -99,11 +102,12 @@ export async function listProspects(companyId: string, opts: { searchId: string 
                        WHERE i.prospect_id = p.id), '{}') AS lists
        FROM prospects p
       WHERE p.company_id = $4 AND ($1::bigint IS NULL OR p.search_id = $1)
+        AND ($5::bigint IS NULL OR EXISTS (SELECT 1 FROM prospect_list_items li WHERE li.list_id = $5 AND li.prospect_id = p.id))
         AND ($2 = 'all' OR p.wa_status = $2)
         AND ($3 = '' OR p.name ILIKE '%' || $3 || '%' OR p.category ILIKE '%' || $3 || '%' OR p.address ILIKE '%' || $3 || '%')
       ORDER BY (p.wa_status = 'yes') DESC, p.reviews DESC NULLS LAST, p.id DESC
       LIMIT 300`,
-    [opts.searchId, opts.filter, opts.q.trim(), companyId],
+    [opts.searchId, opts.filter, opts.q.trim(), companyId, opts.listId ?? null],
   )
   return rows
 }

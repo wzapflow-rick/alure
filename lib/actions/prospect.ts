@@ -97,7 +97,7 @@ export async function runProspectSearch(_: ActionState, fd: FormData): Promise<A
     return failure(e)
   }
   refresh()
-  redirect(`/disparos/prospeccao?busca=${searchId}`)
+  redirect(`/disparos/prospeccao?ver=b${searchId}`)
 }
 
 export async function verifyProspectsNow(_: ActionState, fd: FormData): Promise<ActionState> {
