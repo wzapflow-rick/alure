@@ -34,7 +34,7 @@ export function ProductsTable({
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-3 border-b border-border px-5 py-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-5 md:flex-row md:items-center md:justify-between">
         <SearchInput value={term} onChange={setTerm} className="md:w-80" />
         <div className="flex items-center gap-4">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
@@ -53,7 +53,46 @@ export function ProductsTable({
       </div>
 
       {rows.length ? (
-        <div className="overflow-x-auto">
+        <ul className="divide-y divide-border md:hidden">
+          {rows.map((p) => {
+            const s = status(p)
+            return (
+              <li key={p.id} className={cn(!p.active && 'opacity-50')}>
+                <Link href={`/produtos/${p.id}`} className="flex flex-col gap-2.5 px-4 py-3.5 active:bg-surface-2/60">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-sm font-medium leading-snug text-pretty">{p.name}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        <span className="font-mono">{p.sku}</span>
+                        {p.category ? ` · ${p.category}` : ''}
+                      </span>
+                    </div>
+                    <Badge tone={s.tone}>{s.label}</Badge>
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="flex flex-col gap-0.5">
+                      <dt className="text-muted-foreground">Vendas 30d</dt>
+                      <dd className="tabular">{p.orders_30d ? formatInt(p.orders_30d) : '—'}</dd>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <dt className="text-muted-foreground">Faturamento</dt>
+                      <dd className="tabular">{p.revenue_30d ? formatBRL(p.revenue_30d) : '—'}</dd>
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <dt className="text-muted-foreground">Custo médio</dt>
+                      <dd className={cn('tabular', !p.average_cost && 'text-attention')}>
+                        {p.average_cost ? formatBRL(p.average_cost) : 'Cadastrar'}
+                      </dd>
+                    </div>
+                  </dl>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+      {rows.length ? (
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">

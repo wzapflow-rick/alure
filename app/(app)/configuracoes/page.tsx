@@ -75,7 +75,38 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <Panel title="Regras de taxa">
         <div className="flex flex-col">
           {rules.length ? (
-            <div className="overflow-x-auto">
+            <ul className="divide-y divide-border md:hidden">
+              {rules.map((r) => (
+                <li key={r.id} className={`flex flex-col gap-2 px-4 py-3.5 ${r.active ? '' : 'opacity-50'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-sm font-medium">{r.name}</span>
+                      <span className="text-xs text-muted-foreground">{r.marketplace_name}{r.category ? ` · ${r.category}` : ''}</span>
+                    </div>
+                    <InlineAction action={toggleFeeRule} fields={{ id: r.id, active: r.active ? 'false' : 'true' }} label={r.active ? 'Desativar' : 'Ativar'} />
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <dt className="text-muted-foreground">Comissão</dt>
+                    <dd className="text-right tabular">
+                      {formatPct(r.percentage_fee)}{Number(r.additional_fee_pct) ? ` + ${formatPct(r.additional_fee_pct)}` : ''}
+                    </dd>
+                    <dt className="text-muted-foreground">Fixa</dt>
+                    <dd className="text-right tabular">{formatBRL(Number(r.fixed_fee) + Number(r.additional_fixed_fee))}</dd>
+                    <dt className="text-muted-foreground">Faixa</dt>
+                    <dd className="text-right tabular">
+                      {r.min_price ? formatBRL(r.min_price) : '—'} a {r.max_price ? formatBRL(r.max_price) : '∞'}
+                    </dd>
+                    <dt className="text-muted-foreground">Vigência</dt>
+                    <dd className="text-right tabular">
+                      {formatDate(r.effective_from)}{r.effective_to ? ` — ${formatDate(r.effective_to)}` : ''}
+                    </dd>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {rules.length ? (
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-xs text-muted-foreground">

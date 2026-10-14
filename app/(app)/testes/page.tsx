@@ -42,7 +42,35 @@ function ExperimentTable({
   return (
     <Panel title={title}>
       {rows.length ? (
-        <div className="overflow-x-auto">
+        <ul className="divide-y divide-border md:hidden">
+          {rows.map((e) => (
+            <li key={e.id}>
+              <Link href={`/testes/${e.id}`} className="flex flex-col gap-2 px-4 py-3.5 active:bg-surface-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-sm font-medium leading-snug text-pretty">{e.product_name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      <span className="font-mono">{formatTestCode(e.id)}</span> · {e.marketplace_name}
+                    </span>
+                  </div>
+                  <Badge tone={experimentTone(e.status)}>{EXPERIMENT_STATUS_LABEL[e.status]}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  <span className="text-foreground">{VARIABLE_LABEL[e.variable]}</span>: {e.previous_value} → {e.new_value}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground tabular">
+                  <span className="font-mono">
+                    {formatDate(e.start_date)} — {formatDate(e.evaluation_date)}
+                  </span>
+                  {e.decision ? <Badge>{DECISION_LABEL[e.decision]}</Badge> : null}
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length ? (
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">

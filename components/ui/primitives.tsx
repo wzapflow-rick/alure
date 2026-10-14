@@ -13,9 +13,9 @@ export const buttonVariants = cva(
         danger: 'border border-critical/40 text-critical hover:bg-critical/10',
       },
       size: {
-        sm: 'h-8 px-3 text-[13px]',
-        md: 'h-9 px-4',
-        icon: 'size-8',
+        sm: 'h-9 px-3 text-[13px] sm:h-8',
+        md: 'h-10 px-4 sm:h-9',
+        icon: 'size-10 sm:size-8',
       },
     },
     defaultVariants: { variant: 'secondary', size: 'md' },
@@ -32,10 +32,10 @@ export function Button({
 }
 
 const fieldBase =
-  'w-full rounded-md border border-border bg-background px-3 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 hover:border-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20'
+  'w-full min-w-0 rounded-md border border-border bg-background px-3 text-base text-foreground sm:text-sm transition-colors placeholder:text-muted-foreground/60 hover:border-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20'
 
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(fieldBase, 'h-9', className)} {...props} />
+  return <input className={cn(fieldBase, 'h-10 sm:h-9', className)} {...props} />
 }
 
 export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -43,7 +43,7 @@ export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<H
 }
 
 export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(fieldBase, 'h-9', className)} {...props} />
+  return <select className={cn(fieldBase, 'h-10 sm:h-9', className)} {...props} />
 }
 
 export function Field({
@@ -205,7 +205,7 @@ export function PageHeader({
 }) {
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-2">
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h1 className="text-2xl font-semibold tracking-tight text-balance md:text-[28px]">{title}</h1>
         {description ? <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground text-pretty">{description}</p> : null}

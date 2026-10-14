@@ -102,10 +102,10 @@ export default async function ExperimentPage({ params }: { params: Promise<{ id:
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th scope="col" className="px-5 py-2 font-normal">Métrica</th>
-                  <th scope="col" className="px-5 py-2 text-right font-normal">Antes</th>
-                  <th scope="col" className="px-5 py-2 text-right font-normal">Durante</th>
-                  <th scope="col" className="px-5 py-2 text-right font-normal">Variação</th>
+                  <th scope="col" className="px-3 py-2 sm:px-5 font-normal">Métrica</th>
+                  <th scope="col" className="px-3 py-2 sm:px-5 text-right font-normal">Antes</th>
+                  <th scope="col" className="px-3 py-2 sm:px-5 text-right font-normal">Durante</th>
+                  <th scope="col" className="px-3 py-2 sm:px-5 text-right font-normal">Variação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -113,10 +113,10 @@ export default async function ExperimentPage({ params }: { params: Promise<{ id:
                   const d = delta(m.test, m.base)
                   return (
                     <tr key={m.label}>
-                      <td className="px-5 py-3">{m.label}</td>
-                      <td className="px-5 py-3 text-right tabular text-muted-foreground">{m.base === null ? '—' : m.fmt(m.base)}</td>
-                      <td className="px-5 py-3 text-right tabular">{m.test === null ? '—' : m.fmt(m.test)}</td>
-                      <td className={`px-5 py-3 text-right font-mono text-xs tabular ${d === null ? 'text-muted-foreground' : d >= 0 ? 'text-positive' : 'text-critical'}`}>
+                      <td className="px-3 py-3 sm:px-5">{m.label}</td>
+                      <td className="px-3 py-3 sm:px-5 text-right tabular text-muted-foreground">{m.base === null ? '—' : m.fmt(m.base)}</td>
+                      <td className="px-3 py-3 sm:px-5 text-right tabular">{m.test === null ? '—' : m.fmt(m.test)}</td>
+                      <td className={`px-3 py-3 sm:px-5 text-right font-mono text-xs tabular ${d === null ? 'text-muted-foreground' : d >= 0 ? 'text-positive' : 'text-critical'}`}>
                         {d === null ? '—' : formatPct(d, true)}
                       </td>
                     </tr>
@@ -125,7 +125,7 @@ export default async function ExperimentPage({ params }: { params: Promise<{ id:
               </tbody>
             </table>
             {!hasBaseline ? (
-              <p className="border-t border-border px-5 py-3 text-xs text-attention">Sem histórico anterior suficiente — comparação inconclusiva.</p>
+              <p className="border-t border-border px-3 py-3 sm:px-5 text-xs text-attention">Sem histórico anterior suficiente — comparação inconclusiva.</p>
             ) : null}
           </div>
         )}
