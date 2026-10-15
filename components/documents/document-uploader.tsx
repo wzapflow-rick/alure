@@ -42,6 +42,11 @@ export function DocumentUploader() {
     setPhase('uploading')
     setProgress(0)
     try {
+      const check = await fetch('/api/documentos/upload', { cache: 'no-store' })
+      if (!check.ok) {
+        const data = (await check.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? 'Não foi possível autorizar o envio. Tente de novo.')
+      }
       const safeName = file.name.normalize('NFD').replace(/[^\w.-]+/g, '-').toLowerCase()
       const blob = await upload(`documentos/${safeName}`, file, {
         access: 'private',
