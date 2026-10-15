@@ -2,7 +2,6 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { upload } from '@vercel/blob/client'
 import { FileText, Upload } from 'lucide-react'
 import { Button, Field, Input, Textarea } from '@/components/ui/primitives'
 import { registerDocument } from '@/lib/actions/documents'
@@ -10,7 +9,7 @@ import { cn } from '@/lib/utils'
 
 const MAX_BYTES = 100 * 1024 * 1024
 
-type Phase = 'idle' | 'uploading' | 'reading'
+type Phase = 'idle' | 'reading' | 'saving'
 
 function formatMb(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`
@@ -39,28 +38,30 @@ export function DocumentUploader() {
     e.preventDefault()
     if (!file || phase !== 'idle') return
     setResult(null)
-    setPhase('uploading')
+    setPhase('reading')
     setProgress(0)
     try {
-      const check = await fetch('/api/documentos/upload', { cache: 'no-store' })
-      if (!check.ok) {
-        const data = (await check.json().catch(() => null)) as { error?: string } | null
-        throw new Error(data?.error ?? 'Não foi possível autorizar o envio. Tente de novo.')
+      const { getDocumentProxy } = await import('unpdf')
+      const pdf = await getDocumentProxy(new Uint8Array(await file.arrayBuffer()))
+      const pages: string[] = []
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        pages.push(
+          content.items
+            .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : ''))
+            .join(''),
+        )
+        setProgress(Math.round((i / pdf.numPages) * 100))
       }
-      const safeName = file.name.normalize('NFD').replace(/[^\w.-]+/g, '-').toLowerCase()
-      const blob = await upload(`documentos/${safeName}`, file, {
-        access: 'private',
-        handleUploadUrl: '/api/documentos/upload',
-        multipart: file.size > 5 * 1024 * 1024,
-        onUploadProgress: ({ percentage }) => setProgress(Math.round(percentage)),
-      })
-      setPhase('reading')
+      setPhase('saving')
       const res = await registerDocument({
-        pathname: blob.pathname,
         fileName: file.name,
         title,
         notes,
         bytes: file.size,
+        totalPages: pdf.numPages,
+        pages,
       })
       setResult(res)
       if (res?.ok) {
@@ -126,11 +127,11 @@ export function DocumentUploader() {
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-primary transition-all"
-              style={{ width: phase === 'reading' ? '100%' : `${progress}%` }}
+              style={{ width: phase === 'saving' ? '100%' : `${progress}%` }}
             />
           </div>
           <span className="text-xs text-muted-foreground">
-            {phase === 'uploading' ? `Enviando… ${progress}%` : 'Lendo as páginas do PDF…'}
+            {phase === 'reading' ? `Lendo as páginas do PDF… ${progress}%` : 'Salvando na memória…'}
           </span>
         </div>
       ) : null}
