@@ -36,7 +36,7 @@ const TASK_TIER: Record<AITask, ModelTier> = {
   TEST_REVIEW: 'default',
   OPPORTUNITY_ANALYSIS: 'default',
   PRIORITY_EXPLANATION: 'default',
-  ASSISTANT_QUERY: 'default',
+  ASSISTANT_QUERY: 'deep',
   STRATEGIC_ANALYSIS: 'deep',
   SIMPLE_SUMMARY: 'fast',
   CONNECTION_TEST: 'fast',
