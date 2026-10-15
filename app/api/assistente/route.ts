@@ -143,11 +143,15 @@ function withoutProviderIds(part: UIMessage['parts'][number]): UIMessage['parts'
   return rest as UIMessage['parts'][number]
 }
 
-function forModel(message: UIMessage): UIMessage {
+const isToolPart = (p: UIMessage['parts'][number]) => p.type.startsWith('tool-') || p.type === 'dynamic-tool'
+
+// Old tool outputs (raw query results) are the bulk of the tokens; the assistant's
+// written answer already summarizes them, so only recent turns keep them.
+function forModel(message: UIMessage, keepToolResults: boolean): UIMessage {
   return {
     ...message,
     parts: message.parts
-      .filter((p) => p.type !== 'reasoning')
+      .filter((p) => p.type !== 'reasoning' && (keepToolResults || !isToolPart(p)))
       .map((p) =>
         p.type === 'file' && !p.url
           ? { type: 'text' as const, text: `[Anexo enviado antes: ${p.filename ?? 'arquivo'} — o conteúdo não foi reenviado]` }
@@ -635,9 +639,11 @@ export async function POST(req: Request) {
     if (!(await ensureConversation(user.id, conversationId, title))) {
       return new Response('Conversa não encontrada', { status: 404 })
     }
-    const history = (await getConversationMessages(user.id, conversationId, 40)) ?? []
+    const history = ((await getConversationMessages(user.id, conversationId, 20)) ?? []).filter(
+      (m) => m.id !== userMessage.id,
+    )
     await saveMessage(conversationId, withoutBinary(userMessage))
-    messages = [...history.filter((m) => m.id !== userMessage.id).map(forModel), userMessage]
+    messages = [...history.map((m, i) => forModel(m, i >= history.length - 2)), userMessage]
     const freshness = await safe(refreshTodayIfStale, [])
     dbContext = await buildDatabaseContext(user, conversationId, freshness)
   } catch (err) {
@@ -652,8 +658,11 @@ export async function POST(req: Request) {
       convertDataPart: (part) =>
         part.type === 'data-document' ? { type: 'text', text: documentToPrompt(part.data as DocumentData) } : undefined,
     }),
-    stopWhen: isStepCount(8),
+    stopWhen: isStepCount(6),
     tools: buildTools(user, conversationId),
+    providerOptions: {
+      openai: { reasoningEffort: 'medium', promptCacheKey: `alure-assistant-${user.id}` },
+    },
     onFinish: async (event) => {
       await recordUsage(prepared, {
         startedAt,

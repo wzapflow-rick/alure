@@ -90,6 +90,7 @@ export async function runStructuredTask<S extends z.ZodType>(opts: {
         instructions: opts.taskInstructions ? `${SYSTEM_PROMPT}\n\n${opts.taskInstructions}` : SYSTEM_PROMPT,
         prompt: opts.prompt,
         output: Output.object({ schema: opts.schema }),
+        providerOptions: { openai: { reasoningEffort: 'low', promptCacheKey: `alure-${opts.task}` } },
         abortSignal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
       })
       const parsed = opts.schema.safeParse(result.output)
