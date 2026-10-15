@@ -4,6 +4,7 @@ import { ActionForm, SubmitButton } from '@/components/forms/action-form'
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives'
 import { VARIABLE_LABEL } from '@/components/ui/badges'
 import { createExperiment } from '@/lib/actions/experiments'
+import { MetricPicker } from '@/components/experiments/metric-picker'
 
 export type ChannelOption = { id: string; label: string; price: string }
 
@@ -48,14 +49,7 @@ export function ExperimentForm({ channels, today, defaultChannel }: { channels: 
           <Input id="evaluationDate" name="evaluationDate" type="date" required defaultValue={evalISO} />
         </Field>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Métrica principal" htmlFor="primaryMetric">
-          <Input id="primaryMetric" name="primaryMetric" required defaultValue="Conversão" />
-        </Field>
-        <Field label="Métricas secundárias" htmlFor="secondaryMetrics" hint="Separadas por vírgula.">
-          <Input id="secondaryMetrics" name="secondaryMetrics" defaultValue="Pedidos, Margem, Visitas" />
-        </Field>
-      </div>
+      <MetricPicker />
       <p className="text-xs leading-relaxed text-muted-foreground">
         O ALURE OS não altera nada no marketplace. Aplique a mudança manualmente e registre aqui para que o motor acompanhe.
       </p>

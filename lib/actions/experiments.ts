@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { withTransaction } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
 import { todayISO } from '@/lib/format'
+import { EXPERIMENT_METRICS } from '@/lib/experiment-metrics'
 import { authed, failure, formObject, isoDate, optionalText, type ActionState } from '@/lib/actions/shared'
 
 const VARIABLES = ['price', 'title', 'images', 'description', 'promotion', 'ads', 'shipping', 'other'] as const
@@ -20,11 +21,16 @@ const createSchema = z
     hypothesis: z.string().trim().min(10, 'Descreva a hipótese').max(1000),
     startDate: isoDate,
     evaluationDate: isoDate,
-    primaryMetric: z.string().trim().min(2).max(80),
+    primaryMetric: z.enum(EXPERIMENT_METRICS, { message: 'Selecione a métrica principal' }),
     secondaryMetrics: z
       .string()
       .optional()
-      .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [])),
+      .transform((v) => {
+        const picked = v ? v.split(',').map((s) => s.trim()) : []
+        return [...new Set(picked)].filter((m): m is (typeof EXPERIMENT_METRICS)[number] =>
+          (EXPERIMENT_METRICS as readonly string[]).includes(m),
+        )
+      }),
   })
   .refine((v) => v.evaluationDate >= v.startDate, 'A avaliação deve ser depois do início')
 
