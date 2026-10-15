@@ -12,6 +12,7 @@ import { query, queryOne } from '@/lib/db'
 import { getSessionUser, type SessionUser } from '@/lib/session'
 import { getEngineSettings } from '@/lib/settings'
 import { todayISO } from '@/lib/format'
+import { documentsForAssistant, readDocumentPages, searchDocuments } from '@/lib/documents/queries'
 import {
   getChannelPerformance,
   getConnections,
@@ -189,6 +190,12 @@ DOCUMENTOS ANEXADOS
 - Cruze o documento com o banco sempre que fizer sentido (SKU, anúncio, preço, vendas): consulte as ferramentas e aponte divergências.
 - Deixe claro o que veio do documento e o que veio do banco. Se o anexo foi cortado no limite, avise.
 - Se o documento trouxer um dado durável (ex.: custo de fornecedor, investimento em Ads por campanha), ofereça registrar na memória.
+
+DOCUMENTOS SALVOS (área Documentos)
+- O usuário pode salvar catálogos, tabelas de preço e manuais na área Documentos. Quando ele disser que "colocou um PDF na memória", "subiu o catálogo" ou pedir para olhar um documento, chame "documentos" para achar o id.
+- Para perguntas pontuais, use "buscarNosDocumentos" (código, EAN, nome da peça) e só depois "lerDocumento" nas páginas encontradas.
+- Para varrer um catálogo inteiro, leia o sumário primeiro (páginas 1 a 3) e depois as seções relevantes com "lerDocumento", em blocos de até 8 páginas. Cruze com "buscarProduto", "maisVendidos" e "anuncios" para separar o que já é vendido do que é novo.
+- Cite sempre a página do documento de onde veio cada item.
 
 FORMATO DA RESPOSTA (markdown, renderizado na tela)
 - Abra com 1–2 frases de diagnóstico. Depois organize em seções curtas com "### Título".
@@ -427,6 +434,35 @@ function buildTools(user: SessionUser, conversationId: string) {
               [termo],
             )
           : listMemory({ status: 'active', limit: 100 }),
+    }),
+    documentos: tool({
+      description:
+        'Lista os documentos salvos pelo usuário na área Documentos (catálogos de fornecedor, tabelas de preço, manuais), com id e número de páginas.',
+      inputSchema: z.object({}),
+      execute: async () => documentsForAssistant(),
+    }),
+    buscarNosDocumentos: tool({
+      description:
+        'Busca por termo (código, EAN, nome de peça, linha) nas páginas dos documentos salvos. Retorna trechos e a página. Use antes de lerDocumento.',
+      inputSchema: z.object({
+        termo: z.string().min(2).max(120),
+        documentoId: z.number().int().positive().optional(),
+      }),
+      execute: async ({ termo, documentoId }) => searchDocuments(termo, documentoId),
+    }),
+    lerDocumento: tool({
+      description:
+        'Lê o texto completo de um intervalo de páginas de um documento salvo (no máximo 8 páginas por chamada). Para varrer um catálogo, leia por seções, começando pelo sumário (páginas 1 a 3).',
+      inputSchema: z.object({
+        documentoId: z.number().int().positive(),
+        paginaInicial: z.number().int().min(1),
+        paginaFinal: z.number().int().min(1),
+      }),
+      execute: async ({ documentoId, paginaInicial, paginaFinal }) => {
+        const from = Math.min(paginaInicial, paginaFinal)
+        const to = Math.min(Math.max(paginaInicial, paginaFinal), from + 7)
+        return readDocumentPages(documentoId, from, to)
+      },
     }),
     publicidadeCampanhas: tool({
       description:

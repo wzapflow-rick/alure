@@ -8,6 +8,7 @@ import {
   Store,
   BookMarked,
   Compass,
+  FileText,
   FlaskConical,
   LayoutGrid,
   LogOut,
@@ -56,6 +57,7 @@ const GROUPS: { label: string | null; items: NavItem[] }[] = [
     items: [
       { href: '/leituras', label: 'Leituras', icon: ScrollText },
       { href: '/memoria', label: 'Memória', icon: BookMarked },
+      { href: '/documentos', label: 'Documentos', icon: FileText },
       { href: '/assistente', label: 'Assistente', icon: Sparkles },
     ],
   },
