@@ -9,7 +9,7 @@ import { BILL_CATEGORIES, moneyToInput } from '@/lib/bills/constants'
 import { formatDigitableLine, onlyDigits, parseBoleto } from '@/lib/bills/barcode'
 import { cn } from '@/lib/utils'
 
-export type BillFormValues = BillDraft & { notes: string }
+export type BillFormValues = BillDraft & { notes: string; is_recurring: boolean }
 
 const EMPTY: BillFormValues = {
   beneficiary: '',
@@ -22,6 +22,7 @@ const EMPTY: BillFormValues = {
   installment_number: '',
   installment_total: '',
   notes: '',
+  is_recurring: false,
 }
 
 function formatMoneyBR(value: number) {
@@ -239,6 +240,27 @@ export function BillForm({
           </div>
         </fieldset>
       </div>
+
+      <label
+        className={cn(
+          'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors',
+          values.is_recurring ? 'border-primary/50 bg-primary/5' : 'border-border bg-background/40 hover:border-primary/30',
+        )}
+      >
+        <input
+          type="checkbox"
+          name="is_recurring"
+          checked={values.is_recurring}
+          onChange={(e) => set('is_recurring', e.target.checked)}
+          className="mt-0.5 size-4 accent-[var(--primary)]"
+        />
+        <span>
+          Conta recorrente (todo mês)
+          <span className="block text-xs text-muted-foreground">
+            Ex.: aluguel, internet, contador. Ao registrar o pagamento, a conta do mês seguinte é lançada automaticamente.
+          </span>
+        </span>
+      </label>
 
       {canGenerate ? (
         <label className="flex items-start gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-sm">

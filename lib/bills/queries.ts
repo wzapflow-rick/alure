@@ -14,6 +14,7 @@ export type Bill = {
   installment_number: number | null
   installment_total: number | null
   group_id: string | null
+  is_recurring: boolean
   status: 'open' | 'paid' | 'cancelled'
   paid_at: string | null
   paid_amount: string | null
@@ -26,7 +27,7 @@ export type Bill = {
 }
 
 const COLUMNS = `id, beneficiary, description, category, amount, due_date::text, digitable_line, document_number,
-  installment_number, installment_total, group_id::text, status, paid_at::text, paid_amount, payment_note,
+  installment_number, installment_total, group_id::text, is_recurring, status, paid_at::text, paid_amount, payment_note,
   file_pathname, file_name, file_type, notes, created_at::text`
 
 export async function isBillsTableReady() {

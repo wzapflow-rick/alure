@@ -15,6 +15,7 @@ export function BillList({ bills, today, emptyTitle }: { bills: Bill[]; today: s
         const state = billState(bill, today)
         const meta = [
           CATEGORY_LABEL[bill.category] ?? bill.category,
+          bill.is_recurring ? 'Recorrente' : null,
           bill.installment_number ? `Parcela ${bill.installment_number}${bill.installment_total ? `/${bill.installment_total}` : ''}` : null,
           bill.description,
         ].filter(Boolean)

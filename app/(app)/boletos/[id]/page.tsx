@@ -75,6 +75,7 @@ export default async function BillPage({ params }: { params: Promise<{ id: strin
                 installment_number: bill.installment_number ? String(bill.installment_number) : '',
                 installment_total: bill.installment_total ? String(bill.installment_total) : '',
                 notes: bill.notes ?? '',
+                is_recurring: bill.is_recurring,
               }}
               initialFile={bill.file_pathname ? { pathname: bill.file_pathname, name: bill.file_name ?? 'boleto', type: bill.file_type ?? '' } : null}
             />

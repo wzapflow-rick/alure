@@ -145,6 +145,7 @@ const billSchema = z
     installment_number: optionalInt,
     installment_total: optionalInt,
     generate_installments: z.string().optional().transform((v) => v === 'on'),
+    is_recurring: z.string().optional().transform((v) => v === 'on'),
     file_pathname: optionalText,
     file_name: optionalText,
     file_type: optionalText,
@@ -167,10 +168,10 @@ export async function saveBill(_: ActionState, formData: FormData): Promise<Acti
         await client.query(
           `UPDATE bills SET beneficiary = $2, description = $3, category = $4, amount = $5, due_date = $6, digitable_line = $7,
                   document_number = $8, installment_number = $9, installment_total = $10,
-                  file_pathname = $11, file_name = $12, file_type = $13, notes = $14, updated_at = now()
+                  file_pathname = $11, file_name = $12, file_type = $13, notes = $14, is_recurring = $15, updated_at = now()
             WHERE id = $1`,
           [v.id, v.beneficiary, v.description, v.category, v.amount, v.due_date, v.digitable_line, v.document_number,
-            v.installment_number, v.installment_total, v.file_pathname, v.file_name, v.file_type, v.notes],
+            v.installment_number, v.installment_total, v.file_pathname, v.file_name, v.file_type, v.notes, v.is_recurring],
         )
         await logAudit({ user, action: 'bill.update', entityType: 'bill', entityId: v.id, newValue: { amount: v.amount, due_date: v.due_date } }, client)
         return rows[0]
@@ -188,10 +189,10 @@ export async function saveBill(_: ActionState, formData: FormData): Promise<Acti
     const created = await withTransaction(async (client) => {
       const { rows } = await client.query<{ id: number }>(
         `INSERT INTO bills (beneficiary, description, category, amount, due_date, digitable_line, document_number,
-                            installment_number, installment_total, group_id, file_pathname, file_name, file_type, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+                            installment_number, installment_total, group_id, file_pathname, file_name, file_type, notes, created_by, is_recurring)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
         [v.beneficiary, v.description, v.category, v.amount, v.due_date, v.digitable_line, v.document_number,
-          v.installment_number, v.installment_total, groupId, v.file_pathname, v.file_name, v.file_type, v.notes, user.id],
+          v.installment_number, v.installment_total, groupId, v.file_pathname, v.file_name, v.file_type, v.notes, user.id, v.is_recurring],
       )
       let extra = 0
       if (createFuture) {
@@ -232,16 +233,55 @@ export async function payBill(_: ActionState, formData: FormData): Promise<Actio
   try {
     const user = await authed()
     const v = paySchema.parse(formObject(formData))
-    const row = await queryOne<{ id: number }>(
-      `UPDATE bills SET status = 'paid', paid_at = $2, paid_amount = COALESCE($3, amount), payment_note = $4, updated_at = now()
-        WHERE id = $1 AND status = 'open' RETURNING id`,
-      [v.id, v.paid_at, v.paid_amount, v.payment_note],
-    )
-    if (!row) return { ok: false, message: 'Este boleto não está em aberto.' }
-    await logAudit({ user, action: 'bill.pay', entityType: 'bill', entityId: v.id, newValue: { paid_at: v.paid_at, paid_amount: v.paid_amount } })
+    const result = await withTransaction(async (client) => {
+      const { rows } = await client.query<{
+        id: number
+        beneficiary: string
+        description: string | null
+        category: string
+        amount: string
+        due_date: string
+        is_recurring: boolean
+      }>(
+        `UPDATE bills SET status = 'paid', paid_at = $2, paid_amount = COALESCE($3, amount), payment_note = $4, updated_at = now()
+          WHERE id = $1 AND status = 'open'
+          RETURNING id, beneficiary, description, category, amount, due_date::text, is_recurring`,
+        [v.id, v.paid_at, v.paid_amount, v.payment_note],
+      )
+      const paid = rows[0]
+      if (!paid) return null
+
+      let nextDue: string | null = null
+      if (paid.is_recurring) {
+        const due = addMonthsISO(paid.due_date, 1)
+        const { rowCount } = await client.query(
+          `INSERT INTO bills (beneficiary, description, category, amount, due_date, is_recurring, notes, created_by)
+           SELECT $1, $2, $3, $4, $5, true, 'Conta recorrente prevista: anexe o boleto quando chegar.', $6
+            WHERE NOT EXISTS (
+              SELECT 1 FROM bills
+               WHERE is_recurring AND status <> 'cancelled'
+                 AND lower(beneficiary) = lower($1) AND category = $3 AND due_date = $5::date
+            )`,
+          [paid.beneficiary, paid.description, paid.category, paid.amount, due, user.id],
+        )
+        if (rowCount) nextDue = due
+      }
+
+      await logAudit(
+        { user, action: 'bill.pay', entityType: 'bill', entityId: v.id, newValue: { paid_at: v.paid_at, paid_amount: v.paid_amount, next_recurring: nextDue } },
+        client,
+      )
+      return { nextDue }
+    })
+    if (!result) return { ok: false, message: 'Este boleto não está em aberto.' }
     revalidatePath(LIST_PATH)
     revalidatePath(`${LIST_PATH}/${v.id}`)
-    return { ok: true, message: 'Pagamento registrado.' }
+    return {
+      ok: true,
+      message: result.nextDue
+        ? `Pagamento registrado. Conta do próximo mês lançada para ${result.nextDue.split('-').reverse().join('/')}.`
+        : 'Pagamento registrado.',
+    }
   } catch (error) {
     return failure(error)
   }
