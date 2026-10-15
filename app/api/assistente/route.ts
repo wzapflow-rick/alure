@@ -135,14 +135,24 @@ function withoutBinary(message: UIMessage): UIMessage {
   }
 }
 
+// Stored parts carry OpenAI item IDs (rs_/msg_/fc_). The SDK replays them as item
+// references, which 404 once the API key/account changes or the item expires —
+// so history is always sent as plain content, never as references.
+function withoutProviderIds(part: UIMessage['parts'][number]): UIMessage['parts'][number] {
+  const { providerMetadata: _p, callProviderMetadata: _c, ...rest } = part as Record<string, unknown>
+  return rest as UIMessage['parts'][number]
+}
+
 function forModel(message: UIMessage): UIMessage {
   return {
     ...message,
-    parts: message.parts.map((p) =>
-      p.type === 'file' && !p.url
-        ? { type: 'text', text: `[Anexo enviado antes: ${p.filename ?? 'arquivo'} — o conteúdo não foi reenviado]` }
-        : p,
-    ),
+    parts: message.parts
+      .filter((p) => p.type !== 'reasoning')
+      .map((p) =>
+        p.type === 'file' && !p.url
+          ? { type: 'text' as const, text: `[Anexo enviado antes: ${p.filename ?? 'arquivo'} — o conteúdo não foi reenviado]` }
+          : withoutProviderIds(p),
+      ),
   }
 }
 

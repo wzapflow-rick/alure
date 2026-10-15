@@ -14,7 +14,10 @@ export function describeAIError(error: unknown): string {
   if (status === 429 || /quota|rate limit/i.test(raw)) {
     return 'A OpenAI recusou por limite de uso ou saldo. Confira o faturamento da conta OpenAI.'
   }
-  if (status === 404 || /model .* does not exist|model_not_found/i.test(raw)) {
+  if (/item with id .* not found/i.test(raw)) {
+    return 'O histórico desta conversa referencia dados de outra conta OpenAI. Envie de novo ou abra uma nova conversa.'
+  }
+  if (/model .* does not exist|model_not_found/i.test(raw) || (status === 404 && /model/i.test(raw))) {
     return 'O modelo configurado não existe nesta conta OpenAI. Confira AI_MODEL_DEFAULT nas variáveis.'
   }
   return `Não foi possível responder agora (${raw.slice(0, 160)}).`
