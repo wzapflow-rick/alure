@@ -194,7 +194,7 @@ DOCUMENTOS ANEXADOS
 DOCUMENTOS SALVOS (área Documentos)
 - O usuário pode salvar catálogos, tabelas de preço e manuais na área Documentos. Quando ele disser que "colocou um PDF na memória", "subiu o catálogo" ou pedir para olhar um documento, chame "documentos" para achar o id.
 - Para perguntas pontuais, use "buscarNosDocumentos" (código, EAN, nome da peça) e só depois "lerDocumento" nas páginas encontradas.
-- Para varrer um catálogo inteiro, leia o sumário primeiro (páginas 1 a 3) e depois as seções relevantes com "lerDocumento", em blocos de até 8 páginas. Cruze com "buscarProduto", "maisVendidos" e "anuncios" para separar o que já é vendido do que é novo.
+- Para varrer um catálogo inteiro, leia o sumário primeiro (páginas 1 a 3) e depois as seções relevantes com "lerDocumento", em blocos de até 5 páginas. Prefira "buscarNosDocumentos" a ler páginas inteiras. Cruze com "buscarProduto", "maisVendidos" e "anuncios" para separar o que já é vendido do que é novo.
 - Cite sempre a página do documento de onde veio cada item.
 
 FORMATO DA RESPOSTA (markdown, renderizado na tela)
@@ -207,6 +207,15 @@ FORMATO DA RESPOSTA (markdown, renderizado na tela)
 ESTILO
 - Português do Brasil, direto e curto. Diferencie fato (dado do banco) de hipótese (marque como hipótese).
 - Você não altera preços, anúncios nem testes: só explica e registra memória. Ações são feitas pelo usuário na interface.`
+
+// The deep model costs several times more per token; most questions are lookups
+// the default model answers just as well, so deep is reserved for heavy analysis.
+const DEEP_HINTS =
+  /estrat[eé]g|plano de a[cç][aã]o|an[aá]lise (profunda|completa|detalhada)|diagn[oó]stico completo|varr|cat[aá]logo|planejamento|cen[aá]rio|proje[cç][aã]o|aprofund|pense bem|com calma/i
+
+function needsDeepModel(text: string, attachmentCount: number) {
+  return attachmentCount > 0 || text.length > 1200 || DEEP_HINTS.test(text)
+}
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -222,7 +231,7 @@ async function buildDatabaseContext(user: SessionUser, conversationId: string, f
     safe(getConnections, []),
     safe(getTodayKpis, null),
     safe(getEngineSettings, null),
-    safe(() => listMemory({ status: 'active', limit: 40 }), []),
+    safe(() => listMemory({ status: 'active', limit: 25 }), []),
     safe(() => listRecommendations({ statuses: ['open'], limit: 8 }), []),
     safe(() => listAlerts(['open'], 10), []),
     safe(() => recentConversationDigest(user.id, conversationId), []),
@@ -452,7 +461,7 @@ function buildTools(user: SessionUser, conversationId: string) {
     }),
     lerDocumento: tool({
       description:
-        'Lê o texto completo de um intervalo de páginas de um documento salvo (no máximo 8 páginas por chamada). Para varrer um catálogo, leia por seções, começando pelo sumário (páginas 1 a 3).',
+        'Lê o texto completo de um intervalo de páginas de um documento salvo (no máximo 5 páginas por chamada). Para varrer um catálogo, leia por seções, começando pelo sumário (páginas 1 a 3).',
       inputSchema: z.object({
         documentoId: z.number().int().positive(),
         paginaInicial: z.number().int().min(1),
@@ -460,7 +469,7 @@ function buildTools(user: SessionUser, conversationId: string) {
       }),
       execute: async ({ documentoId, paginaInicial, paginaFinal }) => {
         const from = Math.min(paginaInicial, paginaFinal)
-        const to = Math.min(Math.max(paginaInicial, paginaFinal), from + 7)
+        const to = Math.min(Math.max(paginaInicial, paginaFinal), from + 4)
         return readDocumentPages(documentoId, from, to)
       },
     }),
@@ -656,7 +665,7 @@ export async function POST(req: Request) {
     parts: [...attachments, ...(text ? [{ type: 'text' as const, text }] : [])],
   }
 
-  const prepared = prepareModel('ASSISTANT_QUERY')
+  const prepared = prepareModel(needsDeepModel(text, attachments.length) ? 'ASSISTANT_DEEP' : 'ASSISTANT_QUERY')
   if (!prepared) {
     return new Response('IA não configurada neste deploy. Configure OPENAI_API_KEY na Vercel e publique de novo.', {
       status: 503,
@@ -675,7 +684,7 @@ export async function POST(req: Request) {
     if (!(await ensureConversation(user.id, conversationId, title))) {
       return new Response('Conversa não encontrada', { status: 404 })
     }
-    const history = ((await getConversationMessages(user.id, conversationId, 20)) ?? []).filter(
+    const history = ((await getConversationMessages(user.id, conversationId, 12)) ?? []).filter(
       (m) => m.id !== userMessage.id,
     )
     await saveMessage(conversationId, withoutBinary(userMessage))
@@ -694,7 +703,8 @@ export async function POST(req: Request) {
       convertDataPart: (part) =>
         part.type === 'data-document' ? { type: 'text', text: documentToPrompt(part.data as DocumentData) } : undefined,
     }),
-    stopWhen: isStepCount(6),
+    stopWhen: isStepCount(5),
+    maxOutputTokens: 6000,
     tools: buildTools(user, conversationId),
     providerOptions: {
       openai: { reasoningEffort: 'medium', promptCacheKey: `alure-assistant-${user.id}` },

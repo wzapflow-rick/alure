@@ -8,6 +8,7 @@ export type AITask =
   | 'OPPORTUNITY_ANALYSIS'
   | 'PRIORITY_EXPLANATION'
   | 'ASSISTANT_QUERY'
+  | 'ASSISTANT_DEEP'
   | 'STRATEGIC_ANALYSIS'
   | 'SIMPLE_SUMMARY'
   | 'CONNECTION_TEST'
@@ -36,7 +37,8 @@ const TASK_TIER: Record<AITask, ModelTier> = {
   TEST_REVIEW: 'fast',
   OPPORTUNITY_ANALYSIS: 'fast',
   PRIORITY_EXPLANATION: 'fast',
-  ASSISTANT_QUERY: 'deep',
+  ASSISTANT_QUERY: 'default',
+  ASSISTANT_DEEP: 'deep',
   STRATEGIC_ANALYSIS: 'default',
   SIMPLE_SUMMARY: 'fast',
   CONNECTION_TEST: 'fast',
