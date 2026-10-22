@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { CartProvider } from '@/components/catalog/cart-provider'
 import { CatalogHeader } from '@/components/catalog/catalog-header'
 import { CartDrawer } from '@/components/catalog/cart-drawer'
 import { CartBar } from '@/components/catalog/cart-bar'
+
+const GA_MEASUREMENT_ID = 'G-BHJ0X1MGWZ'
 
 const description =
   'Metais e acabamentos Deca para seus projetos. Uma seleção ALURE para profissionais, lojas e projetos, com atendimento direto pelo WhatsApp.'
@@ -47,6 +50,16 @@ export default function CatalogLayout({ children }: { children: React.ReactNode 
       <CartBar />
       <CartDrawer />
       <Analytics />
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+        strategy="afterInteractive"
+      />
+      <Script id="google-analytics" strategy="afterInteractive">
+        {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_MEASUREMENT_ID}');`}
+      </Script>
     </CartProvider>
   )
 }
