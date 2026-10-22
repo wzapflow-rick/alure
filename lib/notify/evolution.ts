@@ -225,6 +225,21 @@ export async function sendGroupText(text: string) {
 }
 
 /**
+ * Accepts a phone written any way ("(11) 99999-9999", "+55 11 ...") or a group id.
+ * A hyphen alone does not mean a group: phones are usually typed with one.
+ */
+function catalogOrderTarget(raw: string) {
+  if (raw.includes('@')) return raw
+  const compact = raw.replace(/[\s().+]/g, '')
+  if (/^\d{6,}-\d{6,}$/.test(compact)) return `${compact}@g.us`
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  if (digits.length === 12 || digits.length === 13) return digits
+  if (digits.length >= 15) return `${digits}@g.us`
+  throw new Error(`CATALOG_WHATSAPP_TO inválido: "${raw}". Use DDD + número ou o id do grupo.`)
+}
+
+/**
  * Catalog orders go to CATALOG_WHATSAPP_TO (a phone number or a group id) and fall back
  * to the alerts group, so the feature works with the Evolution setup that already exists.
  */
@@ -233,13 +248,7 @@ export async function sendCatalogOrderText(text: string) {
   if (!cfg) throw new Error('Evolution API não configurada (EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE).')
   const raw = process.env.CATALOG_WHATSAPP_TO?.trim()
   let target: string | null = cfg.groupJid
-  if (raw) {
-    if (raw.includes('@') || raw.includes('-')) target = normalizeGroupJid(raw)
-    else {
-      const digits = raw.replace(/\D/g, '')
-      target = digits.length === 10 || digits.length === 11 ? `55${digits}` : digits
-    }
-  }
+  if (raw) target = catalogOrderTarget(raw)
   if (!target) throw new Error('Destino não configurado (CATALOG_WHATSAPP_TO ou WHATSAPP_GROUP_JID).')
   await sendText(cfg, target, text)
 }
