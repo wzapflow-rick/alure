@@ -435,6 +435,9 @@ async function saveBlock(block: AIBriefBlock) {
  * Runs after the deterministic engine. Failures here never affect the engine's output:
  * the brief simply carries a status explaining why the AI reading is missing.
  */
+const AUTO_AI_MIN_INTERVAL_MS = 12 * 60 * 60 * 1000
+const AUTO_AI_RETRY_MS = 60 * 60 * 1000
+
 export async function runDailyAIAnalysis(opts: { analysisRunId: number | null; userId: string | null; force?: boolean }) {
   try {
     const { context, summary } = await buildDailyContext({ analysisRunId: opts.analysisRunId })
@@ -449,6 +452,13 @@ export async function runDailyAIAnalysis(opts: { analysisRunId: number | null; u
         [todayISO()],
       )
       if (existing?.ai?.status === 'ok' && existing.ai.contextHash === contextHash) return existing.ai
+      // The alerts cron runs every 15 min and new orders change the hash each time; without this
+      // throttle the model was called dozens of times a day. Manual runs (force) bypass it.
+      if (existing?.ai?.generatedAt) {
+        const ageMs = Date.now() - new Date(existing.ai.generatedAt).getTime()
+        const minIntervalMs = existing.ai.status === 'ok' ? AUTO_AI_MIN_INTERVAL_MS : AUTO_AI_RETRY_MS
+        if (ageMs < minIntervalMs) return existing.ai
+      }
     }
 
     const { engineTrace: _trace, dataQuality: _quality, ...modelContext } = context
