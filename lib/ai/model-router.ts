@@ -1,18 +1,6 @@
 import 'server-only'
 
-export type AITask =
-  | 'DAILY_ANALYSIS'
-  | 'PRODUCT_ANALYSIS'
-  | 'CHANNEL_ANALYSIS'
-  | 'TEST_REVIEW'
-  | 'OPPORTUNITY_ANALYSIS'
-  | 'PRIORITY_EXPLANATION'
-  | 'ASSISTANT_QUERY'
-  | 'ASSISTANT_DEEP'
-  | 'STRATEGIC_ANALYSIS'
-  | 'SIMPLE_SUMMARY'
-  | 'CONNECTION_TEST'
-  | 'DOCUMENT_EXTRACTION'
+export type AITask = 'DAILY_ANALYSIS' | 'ASSISTANT_QUERY' | 'CONNECTION_TEST' | 'DOCUMENT_EXTRACTION'
 
 export type ModelTier = 'fast' | 'default' | 'deep'
 
@@ -29,18 +17,14 @@ const ENV_KEYS: Record<ModelTier, string> = {
   deep: 'AI_MODEL_DEEP',
 }
 
-/** Deep is never chosen implicitly: only tasks explicitly mapped here use it. */
+/**
+ * Only the assistant runs on the default tier: it compensates for a smaller model with a rich
+ * database context and tools. Everything else is structured or validated output and runs on fast.
+ * No task uses deep.
+ */
 const TASK_TIER: Record<AITask, ModelTier> = {
-  DAILY_ANALYSIS: 'default',
-  PRODUCT_ANALYSIS: 'fast',
-  CHANNEL_ANALYSIS: 'fast',
-  TEST_REVIEW: 'fast',
-  OPPORTUNITY_ANALYSIS: 'fast',
-  PRIORITY_EXPLANATION: 'fast',
+  DAILY_ANALYSIS: 'fast',
   ASSISTANT_QUERY: 'default',
-  ASSISTANT_DEEP: 'deep',
-  STRATEGIC_ANALYSIS: 'default',
-  SIMPLE_SUMMARY: 'fast',
   CONNECTION_TEST: 'fast',
   DOCUMENT_EXTRACTION: 'fast',
 }

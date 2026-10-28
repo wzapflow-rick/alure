@@ -443,12 +443,14 @@ export async function runDailyAIAnalysis(opts: { analysisRunId: number | null; u
       .digest('hex')
       .slice(0, 16)
 
+    // One AI reading per day. Syncs and page opens reuse it even if the numbers moved;
+    // only the manual button forces a new call.
     if (!opts.force) {
       const existing = await queryOne<{ ai: AIBriefBlock | null }>(
         `SELECT content->'ai' AS ai FROM daily_summaries WHERE summary_date = $1::date`,
         [todayISO()],
       )
-      if (existing?.ai?.status === 'ok' && existing.ai.contextHash === contextHash) return existing.ai
+      if (existing?.ai?.status === 'ok') return existing.ai
     }
 
     const { engineTrace: _trace, dataQuality: _quality, ...modelContext } = context

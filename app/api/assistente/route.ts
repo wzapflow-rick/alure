@@ -187,7 +187,7 @@ FRESCOR DOS DADOS
 
 DOCUMENTOS ANEXADOS
 - O usuário pode anexar planilhas, PDFs, prints e textos. Leia o conteúdo inteiro antes de responder.
-- Cruze o documento com o banco sempre que fizer sentido (SKU, anúncio, preço, vendas): consulte as ferramentas e aponte divergências.
+- Cruze o documento com o banco sempre que fizer sentido (SKU, an��ncio, preço, vendas): consulte as ferramentas e aponte divergências.
 - Deixe claro o que veio do documento e o que veio do banco. Se o anexo foi cortado no limite, avise.
 - Se o documento trouxer um dado durável (ex.: custo de fornecedor, investimento em Ads por campanha), ofereça registrar na memória.
 
@@ -207,15 +207,6 @@ FORMATO DA RESPOSTA (markdown, renderizado na tela)
 ESTILO
 - Português do Brasil, direto e curto. Diferencie fato (dado do banco) de hipótese (marque como hipótese).
 - Você não altera preços, anúncios nem testes: só explica e registra memória. Ações são feitas pelo usuário na interface.`
-
-// The deep model costs several times more per token; most questions are lookups
-// the default model answers just as well, so deep is reserved for heavy analysis.
-const DEEP_HINTS =
-  /estrat[eé]g|plano de a[cç][aã]o|an[aá]lise (profunda|completa|detalhada)|diagn[oó]stico completo|varr|cat[aá]logo|planejamento|cen[aá]rio|proje[cç][aã]o|aprofund|pense bem|com calma/i
-
-function needsDeepModel(text: string, attachmentCount: number) {
-  return attachmentCount > 0 || text.length > 1200 || DEEP_HINTS.test(text)
-}
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -665,7 +656,8 @@ export async function POST(req: Request) {
     parts: [...attachments, ...(text ? [{ type: 'text' as const, text }] : [])],
   }
 
-  const prepared = prepareModel(needsDeepModel(text, attachments.length) ? 'ASSISTANT_DEEP' : 'ASSISTANT_QUERY')
+  // A single mid-tier model: answer quality comes from the database context and tools, not model size.
+  const prepared = prepareModel('ASSISTANT_QUERY')
   if (!prepared) {
     return new Response('IA não configurada neste deploy. Configure OPENAI_API_KEY na Vercel e publique de novo.', {
       status: 503,

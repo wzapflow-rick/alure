@@ -49,6 +49,8 @@ export async function extractBillFromFile(file: File, userId: string): Promise<E
         },
       ],
       output: Output.object({ schema: extractedBillSchema }),
+      maxOutputTokens: 2000,
+      providerOptions: { openai: { reasoningEffort: 'low', promptCacheKey: 'alure-DOCUMENT_EXTRACTION' } },
       abortSignal: AbortSignal.timeout(60_000),
     })
     const parsed = extractedBillSchema.safeParse(result.output)
