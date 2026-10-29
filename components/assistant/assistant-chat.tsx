@@ -352,7 +352,7 @@ export function AssistantChat({
             e.preventDefault()
             void addFiles(e.dataTransfer.files)
           }}
-          className="flex w-full min-w-0 flex-col gap-1 rounded-[1.6rem] border border-border bg-surface p-1 shadow-lg shadow-black/10 transition-colors focus-within:border-primary/60"
+          className="flex w-full min-w-0 flex-col gap-1 rounded-[1.6rem] border border-border bg-surface p-1 shadow-[0_8px_24px_-8px_rgb(6_22_40/0.18)] transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15"
         >
           {attachments.length || reading ? (
             <div className="flex min-w-0 flex-wrap gap-2 px-2 pt-2">

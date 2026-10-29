@@ -32,7 +32,7 @@ const qs = (params: Record<string, string>) =>
 export function ProfitFiltersBar({ filters, presets }: { filters: ProfitFilters; presets: Preset[] }) {
   const status = filters.status === 'valid' ? '' : filters.status
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 sm:p-5">
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5">
       <Chips
         label="Períodos"
         items={presets.map((p) => ({
@@ -42,25 +42,28 @@ export function ProfitFiltersBar({ filters, presets }: { filters: ProfitFilters;
           active: p.from === filters.from && p.to === filters.to,
         }))}
       />
-      <form action="/lucratividade" className="grid grid-cols-2 gap-3 md:grid-cols-[1fr_1fr_2fr_1fr_auto] md:items-end">
+      <form
+        action="/lucratividade"
+        className="grid grid-cols-2 gap-3 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_auto] lg:items-end"
+      >
         <Field label="Data inicial" htmlFor="de">
           <Input id="de" name="de" type="date" defaultValue={filters.from} required />
         </Field>
         <Field label="Data final" htmlFor="ate">
           <Input id="ate" name="ate" type="date" defaultValue={filters.to} required />
         </Field>
-        <Field label="Pesquisar" htmlFor="q" className="col-span-2 md:col-span-1">
+        <Field label="Pesquisar" htmlFor="q" className="col-span-2 lg:col-span-1">
           <Input id="q" name="q" type="search" defaultValue={filters.q} placeholder="SKU, MLB, título ou nº do pedido" />
         </Field>
-        <Field label="Status da venda" htmlFor="status" className="col-span-2 md:col-span-1">
+        <Field label="Status da venda" htmlFor="status" className="col-span-2 sm:col-span-1 lg:col-span-1">
           <Select id="status" name="status" defaultValue={filters.status}>
             <option value="valid">Válidas</option>
             <option value="cancelled">Canceladas</option>
             <option value="all">Todas</option>
           </Select>
         </Field>
-        <div className="col-span-2 flex gap-2 md:col-span-1">
-          <button type="submit" className={buttonVariants({ variant: 'primary', className: 'flex-1 md:flex-none' })}>
+        <div className="col-span-2 flex items-end gap-2 sm:col-span-1 lg:col-span-1">
+          <button type="submit" className={buttonVariants({ variant: 'primary', className: 'h-10 flex-1 lg:flex-none' })}>
             <Search className="size-4" aria-hidden />
             Filtrar
           </button>

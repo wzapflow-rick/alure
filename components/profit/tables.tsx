@@ -15,8 +15,8 @@ function Margin({ row }: { row: { contribution: number; sales: number } }) {
   )
 }
 
-const th = 'px-3 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap'
-const td = 'px-3 py-2.5 text-sm tabular whitespace-nowrap'
+const th = 'bg-surface-2/50 px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap first:pl-5 last:pr-5'
+const td = 'px-3 py-3 text-sm tabular whitespace-nowrap first:pl-5 last:pr-5'
 
 export function ProductTable({ rows }: { rows: ProductRow[] }) {
   return (

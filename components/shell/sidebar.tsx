@@ -179,7 +179,17 @@ export function Sidebar({ userName, openAlerts }: { userName: string; openAlerts
 
   return (
     <>
-      <header className="sidebar-dark sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border px-4 pt-[env(safe-area-inset-top)] md:hidden">
+      <header className="sidebar-dark sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border px-2 pt-[env(safe-area-inset-top)] md:hidden">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Abrir menu"
+          aria-expanded={open}
+          aria-controls="mobile-nav"
+          className="flex size-11 items-center justify-center rounded-md text-foreground/80 transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        >
+          <Menu className="size-5" aria-hidden />
+        </button>
         <Brand />
         {current && current.href !== '/' ? (
           <span className="truncate text-sm text-muted-foreground">

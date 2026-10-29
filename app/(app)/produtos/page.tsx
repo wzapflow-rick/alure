@@ -15,11 +15,17 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         title="Produtos"
         description="Catálogo, custo médio e classificação estratégica."
         action={
-          <div className="flex items-center gap-2">
-            <Link href="/produtos/importar-custos" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <Link
+              href="/produtos/importar-custos"
+              className={buttonVariants({ variant: 'secondary', className: 'h-11 active:scale-[0.98] sm:h-9' })}
+            >
               <Upload className="size-4" aria-hidden /> Importar custos
             </Link>
-            <Link href="/produtos/novo" className={buttonVariants({ variant: 'primary', size: 'sm' })}>
+            <Link
+              href="/produtos/novo"
+              className={buttonVariants({ variant: 'primary', className: 'h-11 active:scale-[0.98] sm:h-9' })}
+            >
               <Plus className="size-4" aria-hidden /> Novo produto
             </Link>
           </div>

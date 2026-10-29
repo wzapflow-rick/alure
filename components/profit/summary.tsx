@@ -3,19 +3,19 @@ import type { ProfitReport } from '@/lib/profit/queries'
 import { formatBRL, formatInt } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+const ratio = (value: number, base: number) => (base > 0 ? value / base : 0)
 const pct = (value: number, base: number) =>
-  base > 0 ? `${((value / base) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'
+  base > 0 ? `${(ratio(value, base) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'
 
-type Tone = 'sales' | 'costs' | 'ship' | 'margin' | 'ads' | 'loss' | 'profit'
+type Tone = 'neutral' | 'cost' | 'ship' | 'ads' | 'gain' | 'loss'
 
-const TONE_BG: Record<Tone, string> = {
-  sales: 'bg-kpi-sales',
-  costs: 'bg-kpi-costs',
-  ship: 'bg-kpi-ship',
-  margin: 'bg-kpi-margin',
-  ads: 'bg-kpi-ads',
-  loss: 'bg-kpi-loss',
-  profit: 'bg-kpi-profit',
+const TONE: Record<Tone, { chip: string; bar: string; value: string }> = {
+  neutral: { chip: 'bg-primary/10 text-primary', bar: 'bg-primary', value: 'text-foreground' },
+  cost: { chip: 'bg-attention/10 text-attention', bar: 'bg-attention', value: 'text-foreground' },
+  ship: { chip: 'bg-surface-2 text-muted-foreground', bar: 'bg-muted-foreground/60', value: 'text-foreground' },
+  ads: { chip: 'bg-info/10 text-info', bar: 'bg-info', value: 'text-foreground' },
+  gain: { chip: 'bg-positive/10 text-positive', bar: 'bg-positive', value: 'text-positive' },
+  loss: { chip: 'bg-critical/10 text-critical', bar: 'bg-critical', value: 'text-critical' },
 }
 
 function Card({
@@ -26,46 +26,59 @@ function Card({
   tone,
   details,
   note,
+  featured,
 }: {
   icon: LucideIcon
   label: string
   value: string
-  share?: string
+  share?: { text: string; ratio: number }
   tone: Tone
   details?: { label: string; value: string }[]
   note?: React.ReactNode
+  featured?: boolean
 }) {
+  const t = TONE[tone]
   return (
     <article
       className={cn(
-        'relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-xl p-4 text-kpi-foreground shadow-sm sm:p-5',
-        TONE_BG[tone],
+        'flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5',
+        featured && 'sm:col-span-2 xl:col-span-1',
       )}
     >
-      <Icon
-        className="pointer-events-none absolute -right-3 -bottom-4 size-24 text-kpi-foreground/10"
-        strokeWidth={1.5}
-        aria-hidden
-      />
-      <header className="relative flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{label}</h3>
-        <Icon className="size-4 text-kpi-foreground/90" aria-hidden />
+      <header className="flex items-center gap-2.5">
+        <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', t.chip)}>
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
       </header>
-      <p className="relative flex flex-wrap items-baseline gap-x-2">
-        <span className="text-2xl font-bold tracking-tight tabular">{value}</span>
-        {share ? <span className="text-xs text-kpi-foreground/80 tabular">({share} das vendas)</span> : null}
-      </p>
+
+      <div className="flex flex-col gap-2">
+        <p className="flex flex-wrap items-baseline gap-x-2">
+          <span className={cn('text-[26px] font-semibold leading-none tracking-tight tabular', t.value)}>{value}</span>
+          {share ? <span className="text-xs text-muted-foreground tabular">{share.text} das vendas</span> : null}
+        </p>
+        {share ? (
+          <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" aria-hidden>
+            <span
+              className={cn('block h-full rounded-full', t.bar)}
+              style={{ width: `${Math.min(100, Math.abs(share.ratio) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+      </div>
+
       {details?.length ? (
-        <dl className="relative grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3 sm:grid-cols-3">
           {details.map((d) => (
             <div key={d.label} className="flex min-w-0 flex-col gap-0.5">
-              <dt className="text-[11px] font-semibold text-kpi-foreground/85">{d.label}</dt>
-              <dd className="truncate text-sm tabular">{d.value}</dd>
+              <dt className="truncate text-xs text-muted-foreground">{d.label}</dt>
+              <dd className="truncate text-sm font-medium tabular">{d.value}</dd>
             </div>
           ))}
         </dl>
       ) : null}
-      {note ? <p className="relative text-xs leading-relaxed text-kpi-foreground/80">{note}</p> : null}
+
+      {note ? <p className="mt-auto text-xs leading-relaxed text-muted-foreground text-pretty">{note}</p> : null}
     </article>
   )
 }
@@ -76,53 +89,61 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
   const ads = s.adsApplies ? s.ads : 0
   const profit = s.contribution - ads
   const parts = [
-    { label: 'Custo do produto', value: s.cost, className: 'bg-muted-foreground/50' },
+    { label: 'Custo do produto', value: s.cost, className: 'bg-foreground/70' },
     { label: 'Tarifas e impostos', value: s.fees + s.taxes, className: 'bg-attention' },
-    { label: 'Frete', value: s.sellerShip, className: 'bg-primary' },
-    { label: 'Publicidade', value: ads, className: 'bg-critical' },
-    { label: profit >= 0 ? 'Lucro' : 'Prejuízo', value: Math.abs(profit), className: profit >= 0 ? 'bg-positive' : 'bg-critical/40' },
+    { label: 'Frete', value: s.sellerShip, className: 'bg-muted-foreground/50' },
+    { label: 'Publicidade', value: ads, className: 'bg-info' },
+    {
+      label: profit >= 0 ? 'Lucro' : 'Prejuízo',
+      value: Math.abs(profit),
+      className: profit >= 0 ? 'bg-positive' : 'bg-critical',
+    },
   ].filter((p) => p.value > 0)
   const total = parts.reduce((sum, p) => sum + p.value, 0)
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 sm:p-5">
+    <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-medium">Para onde foi cada R$ 100 vendidos</h3>
+        <h3 className="text-sm font-semibold">Para onde foi cada R$ 100 vendidos</h3>
         <span className="text-xs text-muted-foreground tabular">
-          {formatInt(s.orders)} pedidos · {formatInt(s.units)} unidades
+          {formatInt(s.orders)} pedidos, {formatInt(s.units)} unidades
         </span>
       </div>
-      <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-2" role="img" aria-label="Divisão das vendas">
+      <div className="flex h-4 w-full gap-0.5 overflow-hidden rounded-md" role="img" aria-label="Divisão das vendas">
         {parts.map((p) => (
-          <span key={p.label} className={p.className} style={{ width: `${(p.value / total) * 100}%` }} />
+          <span key={p.label} className={cn('h-full first:rounded-l-md last:rounded-r-md', p.className)} style={{ width: `${(p.value / total) * 100}%` }} />
         ))}
       </div>
-      <ul className="flex flex-wrap gap-x-5 gap-y-2">
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
         {parts.map((p) => (
-          <li key={p.label} className="flex items-center gap-2 text-xs">
-            <span className={cn('size-2.5 rounded-full', p.className)} aria-hidden />
-            <span className="text-muted-foreground">{p.label}</span>
-            <span className="tabular">{formatBRL((p.value / s.sales) * 100)}</span>
+          <li key={p.label} className="flex min-w-0 flex-col gap-1">
+            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className={cn('size-2 shrink-0 rounded-sm', p.className)} aria-hidden />
+              <span className="truncate">{p.label}</span>
+            </span>
+            <span className="pl-4 text-sm font-semibold tabular">{formatBRL((p.value / s.sales) * 100)}</span>
           </li>
         ))}
       </ul>
-    </div>
+    </section>
   )
 }
 
 export function ProfitSummary({ report }: { report: ProfitReport }) {
   const s = report.summary
   const costsTotal = s.cost + s.fees + s.taxes
-  const afterAdsTone: Tone = !s.adsApplies ? 'ship' : s.afterAds < 0 ? 'loss' : 'profit'
+  const share = (v: number) => ({ text: pct(v, s.sales), ratio: ratio(v, s.sales) })
 
   return (
     <div className="flex flex-col gap-4">
+      <SplitBar s={s} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Card
           icon={ShoppingBag}
           label="Vendas válidas"
           value={formatBRL(s.sales)}
-          tone="sales"
+          tone="neutral"
+          featured
           details={[
             { label: 'Total', value: formatBRL(s.gross) },
             { label: 'Cancelado', value: formatBRL(s.cancelled) },
@@ -133,8 +154,8 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={Receipt}
           label="Tarifas e custos"
           value={formatBRL(costsTotal)}
-          share={pct(costsTotal, s.sales)}
-          tone="costs"
+          share={share(costsTotal)}
+          tone="cost"
           details={[
             { label: 'Custo produto', value: formatBRL(s.cost) },
             { label: 'Tarifas ML', value: formatBRL(s.fees) },
@@ -142,7 +163,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           ]}
           note={
             s.itemsWithoutCost
-              ? `${s.itemsWithoutCost} ${s.itemsWithoutCost === 1 ? 'item vendido está' : 'itens vendidos estão'} sem custo cadastrado — a margem fica maior do que a real.`
+              ? `${s.itemsWithoutCost} ${s.itemsWithoutCost === 1 ? 'item vendido está' : 'itens vendidos estão'} sem custo cadastrado, então a margem aparece maior do que a real.`
               : undefined
           }
         />
@@ -150,7 +171,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={Truck}
           label="Frete pago"
           value={formatBRL(s.sellerShip)}
-          share={pct(s.sellerShip, s.sales)}
+          share={share(s.sellerShip)}
           tone="ship"
           details={[
             { label: 'Vendedor', value: formatBRL(s.sellerShip) },
@@ -162,19 +183,19 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={Banknote}
           label="Margem de contribuição"
           value={formatBRL(s.contribution)}
-          share={pct(s.contribution, s.sales)}
-          tone={s.contribution < 0 ? 'loss' : 'margin'}
-          note="Vendas − custo − tarifas − impostos − frete."
+          share={share(s.contribution)}
+          tone={s.contribution < 0 ? 'loss' : 'gain'}
+          note="Vendas menos custo, tarifas, impostos e frete."
         />
         <Card
           icon={Megaphone}
           label="Publicidade"
           value={s.adsApplies ? formatBRL(s.ads) : '—'}
-          share={s.adsApplies ? pct(s.ads, s.sales) : undefined}
+          share={s.adsApplies ? share(s.ads) : undefined}
           tone="ads"
           note={
             !s.adsApplies
-              ? 'Ads não são separáveis por produto; limpe a busca para ver o total.'
+              ? 'Ads não são separáveis por produto. Limpe a busca para ver o total.'
               : s.adsDays
                 ? `${s.adsDays} ${s.adsDays === 1 ? 'dia lançado' : 'dias lançados'} no período.`
                 : 'Nenhum investimento lançado no período.'
@@ -184,12 +205,11 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={TrendingUp}
           label="Margem após Ads"
           value={s.adsApplies ? formatBRL(s.afterAds) : '—'}
-          share={s.adsApplies ? pct(s.afterAds, s.sales) : undefined}
-          tone={afterAdsTone}
+          share={s.adsApplies ? share(s.afterAds) : undefined}
+          tone={!s.adsApplies ? 'ship' : s.afterAds < 0 ? 'loss' : 'gain'}
           note={s.adsApplies && s.afterAds < 0 ? 'O período deu prejuízo depois da publicidade.' : undefined}
         />
       </div>
-      <SplitBar s={s} />
     </div>
   )
 }
