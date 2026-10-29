@@ -1,3 +1,4 @@
+import { Sparkles } from 'lucide-react'
 import { Disclosure } from '@/components/ui/primitives'
 import { DailyBriefPanel } from '@/components/command/daily-brief'
 import { AIReadingPanel } from '@/components/command/ai-reading'
@@ -61,26 +62,34 @@ export function DayReading({
   const reading = readingParts(ai?.summary ?? brief?.summary ?? brief?.lines?.[0]?.text ?? null)
 
   return (
-    <div className="flex flex-col gap-5">
-      {reading ? (
-        <div className="flex max-w-2xl flex-col gap-3">
-          <p className="text-lg font-medium leading-snug tracking-tight text-foreground text-balance md:text-xl">{reading.headline}</p>
-          {reading.support.length > 0 ? (
-            <p className="text-sm leading-relaxed text-muted-foreground text-pretty md:text-base">{reading.support.join(' ')}</p>
-          ) : null}
-        </div>
-      ) : (
-        <p className="text-base leading-relaxed text-muted-foreground" aria-live="polite">
-          {analyzing ? 'A análise do dia está rodando. Recarregue em alguns segundos.' : 'A leitura de hoje ainda não foi gerada.'}
-        </p>
-      )}
+    <section aria-label="Leitura do dia" className="flex gap-4 rounded-2xl border border-border bg-surface p-5 md:gap-5 md:p-6">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden>
+        <Sparkles className="size-4" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <h2 className="text-sm font-semibold">Leitura do dia</h2>
+        {reading ? (
+          <div className="flex max-w-2xl flex-col gap-2">
+            <p className="text-base font-medium leading-relaxed text-foreground text-pretty md:text-lg">{reading.headline}</p>
+            {reading.support.length > 0 ? (
+              <p className="text-sm leading-relaxed text-muted-foreground text-pretty">{reading.support.join(' ')}</p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed text-muted-foreground" aria-live="polite">
+            {analyzing
+              ? 'A análise do dia está rodando. Recarregue em alguns segundos.'
+              : 'A leitura de hoje ainda não foi gerada. Use "Atualizar" para gerar agora.'}
+          </p>
+        )}
 
-      {brief ? (
-        <Disclosure summary="Ver análise completa" bodyClassName="flex flex-col gap-4">
-          <DailyBriefPanel brief={brief} latest={latest} analyzing={analyzing} />
-          <AIReadingPanel block={brief.ai} />
-        </Disclosure>
-      ) : null}
-    </div>
+        {brief ? (
+          <Disclosure summary="Ver análise completa" bodyClassName="flex flex-col gap-4">
+            <DailyBriefPanel brief={brief} latest={latest} analyzing={analyzing} />
+            <AIReadingPanel block={brief.ai} />
+          </Disclosure>
+        ) : null}
+      </div>
+    </section>
   )
 }

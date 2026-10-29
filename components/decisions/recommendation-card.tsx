@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ArrowUpRight, Check, ChevronDown, RotateCcw, X } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, RotateCcw, X } from 'lucide-react'
 import { ACTION_TYPE_LABEL, CONFIDENCE_LABEL, SEVERITY_LABEL, severityTone } from '@/components/ui/badges'
 import { Disclosure } from '@/components/ui/primitives'
 import { InlineAction } from '@/components/forms/action-form'
@@ -38,6 +38,14 @@ const TONE_TEXT: Record<string, string> = {
   neutral: 'text-muted-foreground',
 }
 
+const TONE_PILL: Record<string, string> = {
+  critical: 'bg-critical/10 text-critical',
+  attention: 'bg-attention/10 text-attention',
+  positive: 'bg-positive/10 text-positive',
+  info: 'bg-primary/10 text-primary',
+  neutral: 'bg-surface-2 text-muted-foreground',
+}
+
 const EVIDENCE_ORDER = ['FATO', 'INTERPRETAÇÃO', 'HIPÓTESE']
 
 function keyFigures(rec: RecommendationRow) {
@@ -64,48 +72,61 @@ export function RecommendationCard({ rec, rank }: { rec: RecommendationRow; rank
   const evidence = [...rec.evidence].sort((a, b) => EVIDENCE_ORDER.indexOf(a.label) - EVIDENCE_ORDER.indexOf(b.label))
 
   return (
-    <article className="flex gap-5 py-7 md:gap-8">
-      {rank !== undefined ? (
-        <span className="w-6 shrink-0 pt-1 font-mono text-xs text-muted-foreground/60 tabular" aria-hidden>
-          {String(rank).padStart(2, '0')}
-        </span>
+    <article className="flex flex-col gap-4 py-6 md:py-7">
+      <header className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {rank !== undefined ? (
+            <span
+              className="flex size-6 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-background tabular"
+              aria-label={`Prioridade ${rank}`}
+            >
+              {rank}
+            </span>
+          ) : null}
+          <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium', TONE_PILL[tone])}>
+            <span className="size-1.5 rounded-full bg-current" aria-hidden />
+            {SEVERITY_LABEL[rec.severity] ?? rec.severity}
+          </span>
+          {rec.sku ? (
+            <span className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">{rec.sku}</span>
+          ) : null}
+        </div>
+        <h3 className="text-[15px] font-medium leading-snug text-foreground text-pretty md:text-base">{rec.title}</h3>
+      </header>
+
+      {figures.length ? (
+        <dl className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-x-10">
+          {figures.map((f) => (
+            <div key={f.label} className="flex min-w-0 flex-col gap-1">
+              <dd className={cn('order-1 text-xl font-semibold tracking-tight tabular break-words md:text-2xl', f.value.trim().startsWith('-') && TONE_TEXT.critical)}>
+                {f.value}
+              </dd>
+              <dt className="order-2 text-xs text-muted-foreground">{f.label}</dt>
+            </div>
+          ))}
+        </dl>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          {rec.sku ? <span className="font-mono text-base text-foreground">{rec.sku}</span> : null}
-          <h3 className={cn('text-[11px] font-medium uppercase tracking-[0.14em]', TONE_TEXT[tone])}>
-            {rec.title}
-            <span className="sr-only"> · {SEVERITY_LABEL[rec.severity] ?? rec.severity}</span>
-          </h3>
-        </header>
+      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground text-pretty">{rec.issue}</p>
 
-        {figures.length ? (
-          <dl className="flex flex-wrap gap-x-10 gap-y-3">
-            {figures.map((f) => (
-              <div key={f.label} className="flex flex-col gap-0.5">
-                <dd className="order-1 text-2xl font-semibold tracking-tight tabular md:text-[28px]">{f.value}</dd>
-                <dt className="order-2 text-xs text-muted-foreground">{f.label.toLowerCase()}</dt>
-              </div>
-            ))}
-          </dl>
-        ) : null}
-
-        <p className="max-w-2xl text-[15px] leading-relaxed text-foreground/90 text-pretty">{rec.issue}</p>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Próxima ação</span>
-          <p className="max-w-2xl text-[15px] leading-relaxed text-pretty">{rec.recommendation}</p>
+      <div className="flex gap-3 rounded-xl bg-primary/5 px-4 py-3">
+        <ArrowRight className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-xs font-medium text-primary">Próxima ação</span>
+          <p className="text-sm leading-relaxed text-foreground text-pretty">{rec.recommendation}</p>
         </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col">
 
         <details className="group/open">
-          <summary className="inline-flex cursor-pointer select-none items-center gap-1.5 rounded text-sm text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-            <span className="group-open/open:hidden">Abrir</span>
+          <summary className="inline-flex min-h-9 cursor-pointer select-none items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+            <span className="group-open/open:hidden">Ver detalhes</span>
             <span className="hidden group-open/open:inline">Fechar</span>
             <ChevronDown className="size-3.5 transition-transform duration-200 group-open/open:rotate-180" aria-hidden />
           </summary>
 
-          <div className="mt-5 flex animate-fade flex-col gap-6 rounded-lg bg-surface px-5 py-5">
+          <div className="mt-4 flex animate-fade flex-col gap-6 rounded-xl border border-border bg-background px-4 py-5 md:px-5">
             {evidence.length ? (
               <dl className="flex flex-col gap-3">
                 {evidence.map((e, i) => (

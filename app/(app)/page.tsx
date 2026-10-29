@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
 import { after } from 'next/server'
 import { getLatestAnalysis, getRunningAnalysis, isStale, runAnalysis } from '@/lib/analysis'
 import { RecommendationCard } from '@/components/decisions/recommendation-card'
@@ -35,6 +36,13 @@ function commandDate() {
   const parts = new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: 'short', year: 'numeric' }).formatToParts(new Date())
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
   return `${get('day')} ${get('month').replace('.', '').toUpperCase()} ${get('year')}`
+}
+
+function greeting() {
+  const hour = Number(new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
+  if (hour < 12) return 'Bom dia'
+  if (hour < 18) return 'Boa tarde'
+  return 'Boa noite'
 }
 
 export default async function CommandPage() {
@@ -105,74 +113,81 @@ export default async function CommandPage() {
 
   return (
     <>
-      <header className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
-        <div className="flex flex-col gap-2">
-          <p className="eyebrow tabular">{commandDate()}</p>
-          <h1 className="text-[28px] font-semibold tracking-tight text-balance md:text-[34px]">
-            {firstName ? `Bom dia, ${firstName}.` : 'Central de comando.'}
+      <header className="flex items-end justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-sm font-medium text-muted-foreground">{commandDate()}</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-balance md:text-[32px]">
+            {firstName ? `${greeting()}, ${firstName}.` : 'Central de comando.'}
           </h1>
         </div>
-        <div className="flex items-center gap-3 md:pt-1">
-          <SearchTrigger className="hidden md:flex md:w-80" />
+        <div className="flex shrink-0 items-center gap-3">
+          <SearchTrigger className="hidden lg:flex lg:w-72" />
           <RunEngineButton />
         </div>
       </header>
 
-      <KpiStrip kpis={kpis} dailyTarget={settings.dailyTarget} />
-
-      <div className="rule" aria-hidden />
-
-      <DayReading brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
+      <div className="flex flex-col gap-4 md:gap-5">
+        <KpiStrip kpis={kpis} dailyTarget={settings.dailyTarget} />
+        <DayReading brief={brief?.content ?? null} latest={latest} analyzing={analyzing} />
+      </div>
 
       {mixAlerts.length ? (
-        <section aria-label="Risco de mix" className="flex flex-col gap-3 border-y border-border py-4 md:flex-row md:items-center md:justify-between">
+        <section aria-label="Risco de mix" className="flex flex-col gap-3 rounded-2xl border border-attention/30 bg-attention/5 p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1">
-            <p className="eyebrow">Risco de mix</p>
+            <p className="text-sm font-semibold text-attention">Risco de mix</p>
             {mixAlerts.map((a) => (
               <p key={a.id} className="text-sm leading-relaxed text-pretty">{a.message}</p>
             ))}
           </div>
           <Link
             href="/alertas"
-            className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-secondary"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-attention/30 bg-surface px-3 text-sm font-medium text-attention transition-colors hover:bg-attention/10"
           >
             Investigar mix
           </Link>
         </section>
       ) : null}
 
-      <section aria-label="Prioridades" className="flex flex-col gap-2">
-        <header className="flex items-baseline justify-between gap-2">
-          <h2 className="eyebrow tabular">
-            Prioridades · <span className="text-foreground">{priorities.length}</span>
-          </h2>
-          <Link href="/prioridades" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
+      <section aria-label="Prioridades" className="flex flex-col gap-4">
+        <header className="flex items-end justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+              Prioridades
+              <span className="rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold text-background tabular">{priorities.length}</span>
+            </h2>
+            <p className="text-sm text-muted-foreground">O que decidir primeiro hoje.</p>
+          </div>
+          <Link
+            href="/prioridades"
+            className="inline-flex shrink-0 items-center gap-0.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+          >
             Ver todas
+            <ChevronRight className="size-4" aria-hidden />
           </Link>
         </header>
         {priorities.length ? (
-          <div className="divide-y divide-border border-y border-border">
+          <div className="flex flex-col gap-3">
             {priorities.map((r, i) => (
-              <RecommendationCard key={r.id} rec={r} rank={i + 1} />
+              <div key={r.id} className="rounded-2xl border border-border bg-surface px-5 md:px-7">
+                <RecommendationCard rec={r} rank={i + 1} />
+              </div>
             ))}
           </div>
         ) : (
-          <p className="py-6 text-sm leading-relaxed text-muted-foreground">
+          <p className="rounded-2xl border border-dashed border-border px-5 py-8 text-center text-sm leading-relaxed text-muted-foreground text-pretty">
             Nenhuma prioridade aberta. O motor só gera prioridades com histórico suficiente e sinal acima dos limites.
           </p>
         )}
       </section>
 
-      <div className="grid gap-12 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 md:gap-5">
         <AttentionBox lines={attention} total={attention.length} />
         <TestsMini experiments={experiments} />
+        <OpportunityStrip items={otherOpportunities.slice(0, 3)} total={otherOpportunities.length} />
+        <div className="flex flex-col justify-center rounded-2xl border border-border bg-surface p-5 md:p-6">
+          <ChannelHealth items={channelHealth} />
+        </div>
       </div>
-
-      <OpportunityStrip items={otherOpportunities.slice(0, 3)} total={otherOpportunities.length} />
-
-      <div className="rule" aria-hidden />
-
-      <ChannelHealth items={channelHealth} />
     </>
   )
 }
