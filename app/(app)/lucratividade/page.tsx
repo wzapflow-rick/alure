@@ -41,7 +41,7 @@ export default async function ProfitPage({
         title="Vendas e lucratividade"
         description="Quanto vendemos, quanto ficou com o ML, quanto pagamos de frete e Ads, e o que sobrou de margem."
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="hidden flex-wrap items-center gap-2 sm:flex">
             <RefreshAdsButton from={from} to={to} />
             <RefreshShippingButton from={from} to={to} />
           </div>
@@ -55,7 +55,16 @@ export default async function ProfitPage({
         </p>
       ) : null}
 
-      <ProfitFiltersBar filters={filters} presets={buildPresets(today)} />
+      <ProfitFiltersBar
+        filters={filters}
+        presets={buildPresets(today)}
+        mobileActions={
+          <>
+            <RefreshAdsButton from={from} to={to} />
+            <RefreshShippingButton from={from} to={to} />
+          </>
+        }
+      />
 
       {report.summary.orders === 0 && report.summary.cancelledOrders === 0 ? (
         <Panel>

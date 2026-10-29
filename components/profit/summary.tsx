@@ -9,63 +9,43 @@ const pct = (value: number, base: number) =>
 
 type Tone = 'sales' | 'cost' | 'ship' | 'margin' | 'ads' | 'gain' | 'loss' | 'idle'
 
-/** Each metric owns one hue so it can be found by color alone; the tint stays soft so numbers lead. */
-const TONE: Record<Tone, { card: string; chip: string; bar: string; track: string; value: string }> = {
-  sales: {
-    card: 'border-kpi-sales/20 bg-kpi-sales/[0.06]',
-    chip: 'bg-kpi-sales text-kpi-foreground',
-    bar: 'bg-kpi-sales',
-    track: 'bg-kpi-sales/15',
-    value: 'text-kpi-sales',
-  },
-  cost: {
-    card: 'border-kpi-costs/20 bg-kpi-costs/[0.05]',
-    chip: 'bg-kpi-costs text-kpi-foreground',
-    bar: 'bg-kpi-costs',
-    track: 'bg-kpi-costs/15',
-    value: 'text-kpi-costs',
-  },
-  ship: {
-    card: 'border-kpi-ship/25 bg-kpi-ship/[0.07]',
-    chip: 'bg-kpi-ship text-kpi-foreground',
-    bar: 'bg-kpi-ship',
-    track: 'bg-kpi-ship/15',
-    value: 'text-kpi-ship',
-  },
-  margin: {
-    card: 'border-kpi-margin/20 bg-kpi-margin/[0.06]',
-    chip: 'bg-kpi-margin text-kpi-foreground',
-    bar: 'bg-kpi-margin',
-    track: 'bg-kpi-margin/15',
-    value: 'text-kpi-margin',
-  },
-  ads: {
-    card: 'border-kpi-ads/20 bg-kpi-ads/[0.05]',
-    chip: 'bg-kpi-ads text-kpi-foreground',
-    bar: 'bg-kpi-ads',
-    track: 'bg-kpi-ads/15',
-    value: 'text-kpi-ads',
-  },
+type ToneStyle = { card: string; chip: string; bar: string; track: string; value: string; muted: string; rule: string }
+
+/** Light text on a solid hue; every inner element derives from `currentColor` so contrast follows the fill. */
+const onDark = {
+  chip: 'bg-kpi-foreground/15 text-kpi-foreground ring-1 ring-kpi-foreground/20',
+  bar: 'bg-kpi-foreground',
+  track: 'bg-kpi-foreground/20',
+  value: 'text-kpi-foreground',
+  muted: 'text-kpi-foreground/75',
+  rule: 'border-kpi-foreground/20',
+}
+
+/** Each metric owns one solid hue so it can be found by color alone. */
+const TONE: Record<Tone, ToneStyle> = {
+  sales: { card: 'border-kpi-sales bg-kpi-sales text-kpi-foreground', ...onDark },
+  cost: { card: 'border-kpi-costs bg-kpi-costs text-kpi-foreground', ...onDark },
+  ship: { card: 'border-kpi-ship bg-kpi-ship text-kpi-foreground', ...onDark },
+  margin: { card: 'border-kpi-margin bg-kpi-margin text-kpi-foreground', ...onDark },
+  ads: { card: 'border-kpi-ads bg-kpi-ads text-kpi-foreground', ...onDark },
+  loss: { card: 'border-kpi-loss bg-kpi-loss text-kpi-foreground', ...onDark },
   gain: {
-    card: 'border-kpi-gain/35 bg-kpi-gain/[0.10]',
-    chip: 'bg-kpi-gain text-kpi-foreground',
-    bar: 'bg-kpi-gain',
-    track: 'bg-kpi-gain/20',
-    value: 'text-kpi-profit',
-  },
-  loss: {
-    card: 'border-kpi-loss/25 bg-kpi-loss/[0.06]',
-    chip: 'bg-kpi-loss text-kpi-foreground',
-    bar: 'bg-kpi-loss',
-    track: 'bg-kpi-loss/15',
-    value: 'text-kpi-loss',
+    card: 'border-kpi-gain bg-kpi-gain text-kpi-gain-foreground',
+    chip: 'bg-kpi-gain-foreground text-kpi-gain',
+    bar: 'bg-kpi-gain-foreground',
+    track: 'bg-kpi-gain-foreground/20',
+    value: 'text-kpi-gain-foreground',
+    muted: 'text-kpi-gain-foreground/75',
+    rule: 'border-kpi-gain-foreground/20',
   },
   idle: {
-    card: 'border-border bg-surface',
+    card: 'border-border bg-surface text-foreground',
     chip: 'bg-surface-2 text-muted-foreground',
     bar: 'bg-muted-foreground/60',
     track: 'bg-surface-2',
     value: 'text-muted-foreground',
+    muted: 'text-muted-foreground',
+    rule: 'border-border',
   },
 }
 
@@ -92,22 +72,22 @@ function Card({
   return (
     <article
       className={cn(
-        'flex min-w-0 flex-col gap-4 rounded-xl border p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5',
+        'flex min-w-0 flex-col gap-4 rounded-2xl border p-4 shadow-[0_1px_2px_rgb(6_22_40/0.08),0_8px_24px_-12px_rgb(6_22_40/0.35)] sm:p-5',
         t.card,
         featured && 'sm:col-span-2 xl:col-span-1',
       )}
     >
       <header className="flex items-center gap-2.5">
-        <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg shadow-sm', t.chip)}>
+        <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', t.chip)}>
           <Icon className="size-[18px]" aria-hidden />
         </span>
-        <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+        <h3 className="text-sm font-semibold">{label}</h3>
       </header>
 
       <div className="flex flex-col gap-2">
         <p className="flex flex-wrap items-baseline gap-x-2">
-          <span className={cn('text-[26px] font-semibold leading-none tracking-tight tabular', t.value)}>{value}</span>
-          {share ? <span className="text-xs text-muted-foreground tabular">{share.text} das vendas</span> : null}
+          <span className={cn('text-[28px] font-semibold leading-none tracking-tight tabular', t.value)}>{value}</span>
+          {share ? <span className={cn('text-xs tabular', t.muted)}>{share.text} das vendas</span> : null}
         </p>
         {share ? (
           <div className={cn('h-1.5 w-full overflow-hidden rounded-full', t.track)} aria-hidden>
@@ -120,17 +100,17 @@ function Card({
       </div>
 
       {details?.length ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-foreground/10 pt-3 sm:grid-cols-3">
+        <dl className={cn('grid grid-cols-2 gap-x-4 gap-y-3 border-t pt-3 sm:grid-cols-3', t.rule)}>
           {details.map((d) => (
             <div key={d.label} className="flex min-w-0 flex-col gap-0.5">
-              <dt className="truncate text-xs text-muted-foreground">{d.label}</dt>
-              <dd className="truncate text-sm font-medium tabular">{d.value}</dd>
+              <dt className={cn('truncate text-xs', t.muted)}>{d.label}</dt>
+              <dd className="truncate text-sm font-semibold tabular">{d.value}</dd>
             </div>
           ))}
         </dl>
       ) : null}
 
-      {note ? <p className="mt-auto text-xs leading-relaxed text-muted-foreground text-pretty">{note}</p> : null}
+      {note ? <p className={cn('mt-auto text-xs leading-relaxed text-pretty', t.muted)}>{note}</p> : null}
     </article>
   )
 }
@@ -141,7 +121,7 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
   const ads = s.adsApplies ? s.ads : 0
   const profit = s.contribution - ads
   const parts = [
-    { label: 'Custo do produto', value: s.cost, className: 'bg-kpi-costs/55' },
+    { label: 'Custo do produto', value: s.cost, className: 'bg-kpi-costs/50' },
     { label: 'Tarifas e impostos', value: s.fees + s.taxes, className: 'bg-kpi-costs' },
     { label: 'Frete', value: s.sellerShip, className: 'bg-kpi-ship' },
     { label: 'Publicidade', value: ads, className: 'bg-kpi-ads' },
@@ -154,7 +134,7 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
   const total = parts.reduce((sum, p) => sum + p.value, 0)
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5">
+    <section className="order-last flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 lg:order-first shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold">Para onde foi cada R$ 100 vendidos</h3>
         <span className="text-xs text-muted-foreground tabular">

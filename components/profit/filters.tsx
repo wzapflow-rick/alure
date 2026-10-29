@@ -3,6 +3,7 @@ import { Search } from 'lucide-react'
 import { Field, Input, Select, buttonVariants } from '@/components/ui/primitives'
 import type { ProfitFilters } from '@/lib/profit/queries'
 import { cn } from '@/lib/utils'
+import { FiltersCollapsible } from './filters-collapsible'
 
 export type Preset = { key: string; label: string; from: string; to: string }
 
@@ -32,10 +33,30 @@ const qs = (params: Record<string, string>) =>
 /** 48px touch targets on phones, compact again from `sm` where a pointer is likely. */
 const touch = 'h-12 text-base sm:h-9 sm:text-sm'
 
-export function ProfitFiltersBar({ filters, presets }: { filters: ProfitFilters; presets: Preset[] }) {
+const shortDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+
+export function ProfitFiltersBar({
+  filters,
+  presets,
+  mobileActions,
+}: {
+  filters: ProfitFilters
+  presets: Preset[]
+  mobileActions?: React.ReactNode
+}) {
   const status = filters.status === 'valid' ? '' : filters.status
+  const activePreset = presets.find((p) => p.from === filters.from && p.to === filters.to)
+  const period =
+    activePreset?.label ??
+    (filters.from === filters.to ? shortDate(filters.from) : `${shortDate(filters.from)} a ${shortDate(filters.to)}`)
+  const summary = filters.q ? `${period}, "${filters.q}"` : period
+
   return (
+    <FiltersCollapsible summary={summary}>
     <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5">
+      {mobileActions ? (
+        <div className="flex flex-wrap gap-2 border-b border-border pb-4 sm:hidden">{mobileActions}</div>
+      ) : null}
       <nav aria-label="Períodos">
         <ul className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-1.5">
           {presets.map((p) => {
@@ -100,5 +121,6 @@ export function ProfitFiltersBar({ filters, presets }: { filters: ProfitFilters;
         </div>
       </form>
     </div>
+    </FiltersCollapsible>
   )
 }
