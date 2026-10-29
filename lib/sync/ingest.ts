@@ -318,8 +318,9 @@ export async function runSync(marketplaceCode: string, range: DateRange) {
 
     if (adapter.code === 'mercado_livre') {
       try {
-        const { syncSellerShipping } = await import('@/lib/profit/shipping')
+        const { syncReturnCosts, syncSellerShipping } = await import('@/lib/profit/shipping')
         await syncSellerShipping(undefined, 150)
+        await syncReturnCosts(undefined, 50)
       } catch (error) {
         console.error('[alure] frete por pedido não lido:', (error as Error).message)
       }

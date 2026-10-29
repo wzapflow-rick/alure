@@ -123,7 +123,7 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
   const parts = [
     { label: 'Custo do produto', value: s.cost, className: 'bg-kpi-costs/50' },
     { label: 'Tarifas e impostos', value: s.fees + s.taxes, className: 'bg-kpi-costs' },
-    { label: 'Frete', value: s.sellerShip, className: 'bg-kpi-ship' },
+    { label: 'Frete e devoluções', value: s.sellerShip + s.returns, className: 'bg-kpi-ship' },
     { label: 'Publicidade', value: ads, className: 'bg-kpi-ads' },
     {
       label: profit >= 0 ? 'Lucro' : 'Prejuízo',
@@ -202,14 +202,22 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
         <Card
           icon={Truck}
           label="Frete pago"
-          value={formatBRL(s.sellerShip)}
-          share={share(s.sellerShip)}
+          value={formatBRL(s.sellerShip + s.returns)}
+          share={share(s.sellerShip + s.returns)}
           tone="ship"
           details={[
-            { label: 'Vendedor', value: formatBRL(s.sellerShip) },
-            { label: 'Comprador', value: formatBRL(s.buyerShip) },
+            { label: 'Envio (vendedor)', value: formatBRL(s.sellerShip) },
+            { label: `Devoluções${s.returnedOrders ? ` (${s.returnedOrders})` : ''}`, value: formatBRL(s.returns) },
+            { label: 'Pago pelo comprador', value: formatBRL(s.buyerShip) },
           ]}
-          note={s.shippingPending ? `${s.shippingPending} pedidos com frete ainda não confirmado pelo ML.` : undefined}
+          note={
+            [
+              s.shippingPending ? `${s.shippingPending} pedidos com frete ainda não confirmado pelo ML.` : '',
+              s.returnsPending ? `${s.returnsPending} devoluções aguardando leitura do custo no ML.` : '',
+            ]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
         />
         <Card
           icon={Banknote}
@@ -217,7 +225,11 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           value={formatBRL(s.contribution)}
           share={share(s.contribution)}
           tone={s.contribution < 0 ? 'loss' : 'margin'}
-          note="Vendas menos custo, tarifas, impostos e frete."
+          note={
+            s.refunds > 0
+              ? `Vendas menos custo, tarifas, impostos, frete e devoluções. ${formatBRL(s.refunds)} reembolsados já foram descontados das vendas.`
+              : 'Vendas menos custo, tarifas, impostos, frete e devoluções.'
+          }
         />
         <Card
           icon={Megaphone}

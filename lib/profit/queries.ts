@@ -1,5 +1,6 @@
 import 'server-only'
 import { query, queryOne } from '@/lib/db'
+import { HAS_MEDIATION, returnsSchemaReady } from '@/lib/profit/returns-schema'
 
 export const PAID_STATUSES = ['paid', 'partially_paid', 'partially_refunded']
 export const PROFIT_SETTINGS_KEY = 'profit'
@@ -43,6 +44,11 @@ type ItemRow = {
   seller_ship: string | null
   shipment_id: string | null
   shipping_synced: boolean
+  refunded: string | null
+  order_items_total: string | null
+  has_return: boolean
+  return_cost: string | null
+  return_synced: boolean
 }
 
 export type ProfitFilters = { from: string; to: string; q: string; status: 'valid' | 'cancelled' | 'all' }
@@ -54,6 +60,10 @@ export type Breakdown = {
   taxes: number
   sellerShip: number
   buyerShip: number
+  /** Return shipping charged by ML plus the outgoing shipping of orders that came back. */
+  returns: number
+  /** Part of the sale refunded to the buyer (already removed from `sales`). */
+  refunds: number
   contribution: number
   units: number
   orders: number
@@ -72,6 +82,8 @@ export type ProfitReport = {
     afterAds: number
     adsApplies: boolean
     shippingPending: number
+    returnsPending: number
+    returnedOrders: number
     itemsWithoutCost: number
   }
   products: ProductRow[]
@@ -97,6 +109,8 @@ const emptyBreakdown = (): Breakdown => ({
   taxes: 0,
   sellerShip: 0,
   buyerShip: 0,
+  returns: 0,
+  refunds: 0,
   contribution: 0,
   units: 0,
   orders: 0,
@@ -111,6 +125,9 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
   const shipmentId = schemaReady ? "COALESCE(o.shipment_id, o.raw->'shipping'->>'id')" : "o.raw->'shipping'->>'id'"
   // A shipment read that failed (cost unknown) counts as not synced, so the report flags it.
   const synced = schemaReady ? 'o.shipping_synced_at IS NOT NULL AND o.shipping_error IS NULL' : 'false'
+  const returnsReady = await returnsSchemaReady()
+  const returnCost = returnsReady ? 'o.return_cost_seller' : 'NULL::numeric'
+  const returnSynced = returnsReady ? 'o.return_synced_at IS NOT NULL AND o.return_error IS NULL' : 'false'
 
   const [rows, settings] = await Promise.all([
     query<ItemRow>(
@@ -133,7 +150,15 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
               END AS buyer_ship,
               ${sellerShip} AS seller_ship,
               ${shipmentId} AS shipment_id,
-              ${synced} AS shipping_synced
+              ${synced} AS shipping_synced,
+              CASE WHEN jsonb_typeof(o.raw->'payments') = 'array' THEN
+                (SELECT sum(COALESCE((pay->>'transaction_amount_refunded')::numeric, 0))
+                   FROM jsonb_array_elements(o.raw->'payments') pay)
+              END AS refunded,
+              sum(oi.total) OVER (PARTITION BY o.id) AS order_items_total,
+              ${HAS_MEDIATION} AS has_return,
+              ${returnCost} AS return_cost,
+              ${returnSynced} AS return_synced
          FROM orders o
          JOIN order_items oi ON oi.order_id = o.id
     LEFT JOIN product_channels pc ON pc.id = oi.product_channel_id
@@ -160,13 +185,31 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
   const validOrders = new Set<string>()
   const cancelledOrders = new Set<string>()
   const pendingShipping = new Set<string>()
+  const pendingReturns = new Set<string>()
+  const returnedOrders = new Set<string>()
   let itemsWithoutCost = 0
+
+  const addTo = (r: ItemRow, apply: (b: Breakdown) => void, countsAsSale: boolean) => {
+    apply(summary)
+    const key = r.sku || r.listing_id
+    const product =
+      products.get(key) ??
+      ({ ...emptyBreakdown(), key, sku: r.sku, listingId: r.listing_id, name: r.name ?? r.listing_id, missingCost: false } as ProductRow)
+    apply(product)
+    if (countsAsSale) product.orders++
+    if (countsAsSale && r.unit_cost === null) product.missingCost = true
+    products.set(key, product)
+    const day = days.get(r.day) ?? ({ ...emptyBreakdown(), day: r.day } as DayRow)
+    apply(day)
+    days.set(r.day, day)
+  }
 
   for (const r of rows) {
     if (!matches(r)) continue
     const total = n(r.total)
     const isValid = PAID_STATUSES.includes(r.status)
     const isCancelled = r.status === 'cancelled'
+    const share = r.share === null ? 1 : n(r.share)
 
     if (isCancelled) {
       summary.cancelled += total
@@ -174,46 +217,62 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
     }
     if (isValid || isCancelled) summary.gross += total
 
-    const include =
-      filters.status === 'all' ? isValid || isCancelled : filters.status === 'cancelled' ? isCancelled : isValid
-    if (!include) continue
-    // Cancelled sales carry no cost: the product returns and ML refunds the fee.
-    if (!isValid) continue
+    if (r.has_return) {
+      if (!r.return_synced) pendingReturns.add(r.order_id)
+      if (r.shipment_id && !r.shipping_synced) pendingShipping.add(r.order_id)
+    }
 
-    const share = r.share === null ? 1 : n(r.share)
-    const cost = r.unit_cost === null ? 0 : n(r.unit_cost) * r.quantity
+    // A cancelled order that was delivered and came back has no sale, fee or tax (ML refunds them),
+    // but the seller still pays the outgoing and the return shipping.
+    if (isCancelled) {
+      if (!r.has_return || filters.status === 'cancelled') continue
+      const returns = (n(r.seller_ship) + n(r.return_cost)) * share
+      if (returns <= 0) continue
+      returnedOrders.add(r.order_id)
+      addTo(r, (b) => {
+        b.returns += returns
+        b.contribution -= returns
+      }, false)
+      continue
+    }
+
+    const include = filters.status === 'all' || filters.status === 'valid' ? isValid : false
+    if (!include) continue
+
+    // Partial refunds: payments[].transaction_amount_refunded, capped at the items total so a
+    // refunded shipping charge never reduces product revenue.
+    const itemsTotal = n(r.order_items_total)
+    const refundedOrder = Math.min(n(r.refunded), itemsTotal)
+    const kept = itemsTotal > 0 ? 1 - refundedOrder / itemsTotal : 1
+    const refund = total * (1 - kept)
+    const sales = total - refund
+
+    // Units sent back return to stock; a refund without a return (e.g. compensation) keeps the cost.
+    const fullCost = r.unit_cost === null ? 0 : n(r.unit_cost) * r.quantity
+    const cost = r.has_return ? fullCost * kept : fullCost
     if (r.unit_cost === null) itemsWithoutCost++
-    const fees = n(r.order_fee) * share
-    const taxes = n(r.order_tax) * share + total * taxRate
+    // ML refunds its sale fee and the order taxes in proportion to the amount refunded.
+    const fees = n(r.order_fee) * share * kept
+    const taxes = (n(r.order_tax) * share + total * taxRate) * kept
     const seller = n(r.seller_ship) * share
     const buyer = n(r.buyer_ship) * share
+    const returns = n(r.return_cost) * share
+    if (returns > 0) returnedOrders.add(r.order_id)
     if (r.shipment_id && !r.shipping_synced) pendingShipping.add(r.order_id)
     validOrders.add(r.order_id)
 
-    const add = (b: Breakdown) => {
-      b.sales += total
+    addTo(r, (b) => {
+      b.sales += sales
+      b.refunds += refund
       b.cost += cost
       b.fees += fees
       b.taxes += taxes
       b.sellerShip += seller
       b.buyerShip += buyer
+      b.returns += returns
       b.units += r.quantity
-      b.contribution += total - cost - fees - taxes - seller
-    }
-    add(summary)
-
-    const key = r.sku || r.listing_id
-    const product =
-      products.get(key) ??
-      ({ ...emptyBreakdown(), key, sku: r.sku, listingId: r.listing_id, name: r.name ?? r.listing_id, missingCost: false } as ProductRow)
-    add(product)
-    product.orders++
-    if (r.unit_cost === null) product.missingCost = true
-    products.set(key, product)
-
-    const day = days.get(r.day) ?? ({ ...emptyBreakdown(), day: r.day } as DayRow)
-    add(day)
-    days.set(r.day, day)
+      b.contribution += sales - cost - fees - taxes - seller - returns
+    }, true)
   }
   summary.orders = validOrders.size
 
@@ -264,6 +323,8 @@ export async function getProfitReport(filters: ProfitFilters, schemaReady: boole
       afterAds: summary.contribution - ads,
       adsApplies,
       shippingPending: pendingShipping.size,
+      returnsPending: pendingReturns.size,
+      returnedOrders: returnedOrders.size,
       itemsWithoutCost,
     },
     products: [...products.values()].sort((a, b) => b.sales - a.sales),

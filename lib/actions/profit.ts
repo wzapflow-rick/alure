@@ -6,7 +6,7 @@ import { query } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
 import { authed, failure, formObject, isoDate, type ActionState } from '@/lib/actions/shared'
 import { PROFIT_SETTINGS_KEY, profitSchemaReady } from '@/lib/profit/queries'
-import { syncSellerShipping } from '@/lib/profit/shipping'
+import { syncReturnCosts, syncSellerShipping } from '@/lib/profit/shipping'
 import { syncMeliAds } from '@/lib/profit/ads-sync'
 
 const PATH = '/lucratividade'
@@ -108,12 +108,14 @@ export async function refreshShipping(_: ActionState, fd: FormData): Promise<Act
     await authed()
     const { from, to } = z.object({ from: isoDate, to: isoDate }).parse(formObject(fd))
     const result = await syncSellerShipping({ from, to })
+    const returns = await syncReturnCosts({ from, to })
     revalidatePath(PATH)
-    if (result.errors.length && !result.updated) return { ok: false, message: result.errors[0] }
-    if (!result.checked) return { ok: true, message: 'Todos os fretes do período já estão lidos.' }
+    if (result.errors.length && !result.updated && !returns.updated) return { ok: false, message: result.errors[0] }
+    if (!result.checked && !returns.checked) return { ok: true, message: 'Todos os fretes do período já estão lidos.' }
+    const errors = result.errors.length + returns.errors.length
     return {
       ok: true,
-      message: `${result.updated} fretes lidos${result.errors.length ? ` · ${result.errors.length} com erro` : ''}.`,
+      message: `${result.updated} fretes lidos${returns.checked ? ` · ${returns.updated} devoluções` : ''}${errors ? ` · ${errors} com erro` : ''}.`,
     }
   } catch (error) {
     return failure(error)
