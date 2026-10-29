@@ -54,7 +54,9 @@ async function quoteSaleFee(ch: ChannelRow, price: number, token: string, cache:
 /** Seller-paid shipping (already with reputation discount) for free-shipping listings. */
 async function quoteShipping(ch: ChannelRow, sellerId: string, token: string): Promise<number | string> {
   if (!ch.free_shipping) return 0
-  const call = await apiGetRaw(`/users/${sellerId}/shipping_options/free?item_id=${encodeURIComponent(ch.external_id)}`, token)
+  // ML docs: without free_shipping=true the endpoint may not return the cost the seller pays.
+  const params = new URLSearchParams({ item_id: ch.external_id, free_shipping: 'true' })
+  const call = await apiGetRaw(`/users/${sellerId}/shipping_options/free?${params}`, token)
   if (!ok(call)) return `shipping_options HTTP ${call.status}`
   const cost = num((call.body as Record<string, any>)?.coverage?.all_country?.list_cost)
   return cost === null ? 'shipping_options sem list_cost' : round(cost, 2)

@@ -53,10 +53,11 @@ export async function syncSellerShipping(range?: { from: string; to: string }, l
     if (res.status !== 200) {
       const message = `HTTP ${res.status}`
       errors.push(`${row.shipment_id}: ${message}`)
-      // 404/403 never resolve on retry; mark as read with zero so the report stops waiting on it.
+      // 404/403 never resolve on retry. The cost stays unknown (not zero) so the report flags it
+      // instead of silently inflating the margin.
       if (res.status === 404 || res.status === 403) {
         await pool.query(
-          `UPDATE orders SET shipping_cost_seller = 0, shipping_synced_at = now(), shipping_error = $2 WHERE id = $1`,
+          `UPDATE orders SET shipping_cost_seller = NULL, shipping_synced_at = now(), shipping_error = $2 WHERE id = $1`,
           [row.id, message],
         )
       }

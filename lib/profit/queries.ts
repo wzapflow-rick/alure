@@ -109,7 +109,8 @@ const emptyBreakdown = (): Breakdown => ({
 export async function getProfitReport(filters: ProfitFilters, schemaReady: boolean): Promise<ProfitReport> {
   const sellerShip = schemaReady ? 'o.shipping_cost_seller' : 'NULL::numeric'
   const shipmentId = schemaReady ? "COALESCE(o.shipment_id, o.raw->'shipping'->>'id')" : "o.raw->'shipping'->>'id'"
-  const synced = schemaReady ? 'o.shipping_synced_at IS NOT NULL' : 'false'
+  // A shipment read that failed (cost unknown) counts as not synced, so the report flags it.
+  const synced = schemaReady ? 'o.shipping_synced_at IS NOT NULL AND o.shipping_error IS NULL' : 'false'
 
   const [rows, settings] = await Promise.all([
     query<ItemRow>(

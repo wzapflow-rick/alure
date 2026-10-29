@@ -209,7 +209,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
             { label: 'Vendedor', value: formatBRL(s.sellerShip) },
             { label: 'Comprador', value: formatBRL(s.buyerShip) },
           ]}
-          note={s.shippingPending ? `${s.shippingPending} pedidos com frete ainda não lido do ML.` : undefined}
+          note={s.shippingPending ? `${s.shippingPending} pedidos com frete ainda não confirmado pelo ML.` : undefined}
         />
         <Card
           icon={Banknote}
