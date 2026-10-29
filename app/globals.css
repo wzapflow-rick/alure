@@ -20,11 +20,12 @@
   --kpi-foreground: #ffffff;
   --kpi-sales: #22409c;
   --kpi-costs: #a3123a;
-  --kpi-ship: #78716c;
-  --kpi-margin: #2547c4;
-  --kpi-ads: #7a1d82;
+  --kpi-ship: #5c5148;
+  --kpi-margin: #3730a3;
+  --kpi-ads: #a21caf;
   --kpi-loss: #e1121f;
-  --kpi-profit: #127a45;
+  --kpi-profit: #047857;
+  --kpi-gain: #10b981;
   --radius: 0.625rem;
   --brand-navy: #061628;
   --brand-deep: #020d1a;
@@ -48,6 +49,7 @@
   --color-kpi-ads: var(--kpi-ads);
   --color-kpi-loss: var(--kpi-loss);
   --color-kpi-profit: var(--kpi-profit);
+  --color-kpi-gain: var(--kpi-gain);
   --color-border: var(--border);
   --color-muted-foreground: var(--muted-foreground);
   --color-primary: var(--primary);

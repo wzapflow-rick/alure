@@ -7,15 +7,66 @@ const ratio = (value: number, base: number) => (base > 0 ? value / base : 0)
 const pct = (value: number, base: number) =>
   base > 0 ? `${(ratio(value, base) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'
 
-type Tone = 'neutral' | 'cost' | 'ship' | 'ads' | 'gain' | 'loss'
+type Tone = 'sales' | 'cost' | 'ship' | 'margin' | 'ads' | 'gain' | 'loss' | 'idle'
 
-const TONE: Record<Tone, { chip: string; bar: string; value: string }> = {
-  neutral: { chip: 'bg-primary/10 text-primary', bar: 'bg-primary', value: 'text-foreground' },
-  cost: { chip: 'bg-attention/10 text-attention', bar: 'bg-attention', value: 'text-foreground' },
-  ship: { chip: 'bg-surface-2 text-muted-foreground', bar: 'bg-muted-foreground/60', value: 'text-foreground' },
-  ads: { chip: 'bg-info/10 text-info', bar: 'bg-info', value: 'text-foreground' },
-  gain: { chip: 'bg-positive/10 text-positive', bar: 'bg-positive', value: 'text-positive' },
-  loss: { chip: 'bg-critical/10 text-critical', bar: 'bg-critical', value: 'text-critical' },
+/** Each metric owns one hue so it can be found by color alone; the tint stays soft so numbers lead. */
+const TONE: Record<Tone, { card: string; chip: string; bar: string; track: string; value: string }> = {
+  sales: {
+    card: 'border-kpi-sales/20 bg-kpi-sales/[0.06]',
+    chip: 'bg-kpi-sales text-kpi-foreground',
+    bar: 'bg-kpi-sales',
+    track: 'bg-kpi-sales/15',
+    value: 'text-kpi-sales',
+  },
+  cost: {
+    card: 'border-kpi-costs/20 bg-kpi-costs/[0.05]',
+    chip: 'bg-kpi-costs text-kpi-foreground',
+    bar: 'bg-kpi-costs',
+    track: 'bg-kpi-costs/15',
+    value: 'text-kpi-costs',
+  },
+  ship: {
+    card: 'border-kpi-ship/25 bg-kpi-ship/[0.07]',
+    chip: 'bg-kpi-ship text-kpi-foreground',
+    bar: 'bg-kpi-ship',
+    track: 'bg-kpi-ship/15',
+    value: 'text-kpi-ship',
+  },
+  margin: {
+    card: 'border-kpi-margin/20 bg-kpi-margin/[0.06]',
+    chip: 'bg-kpi-margin text-kpi-foreground',
+    bar: 'bg-kpi-margin',
+    track: 'bg-kpi-margin/15',
+    value: 'text-kpi-margin',
+  },
+  ads: {
+    card: 'border-kpi-ads/20 bg-kpi-ads/[0.05]',
+    chip: 'bg-kpi-ads text-kpi-foreground',
+    bar: 'bg-kpi-ads',
+    track: 'bg-kpi-ads/15',
+    value: 'text-kpi-ads',
+  },
+  gain: {
+    card: 'border-kpi-gain/35 bg-kpi-gain/[0.10]',
+    chip: 'bg-kpi-gain text-kpi-foreground',
+    bar: 'bg-kpi-gain',
+    track: 'bg-kpi-gain/20',
+    value: 'text-kpi-profit',
+  },
+  loss: {
+    card: 'border-kpi-loss/25 bg-kpi-loss/[0.06]',
+    chip: 'bg-kpi-loss text-kpi-foreground',
+    bar: 'bg-kpi-loss',
+    track: 'bg-kpi-loss/15',
+    value: 'text-kpi-loss',
+  },
+  idle: {
+    card: 'border-border bg-surface',
+    chip: 'bg-surface-2 text-muted-foreground',
+    bar: 'bg-muted-foreground/60',
+    track: 'bg-surface-2',
+    value: 'text-muted-foreground',
+  },
 }
 
 function Card({
@@ -41,15 +92,16 @@ function Card({
   return (
     <article
       className={cn(
-        'flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5',
+        'flex min-w-0 flex-col gap-4 rounded-xl border p-4 shadow-[0_1px_2px_rgb(6_22_40/0.05)] sm:p-5',
+        t.card,
         featured && 'sm:col-span-2 xl:col-span-1',
       )}
     >
       <header className="flex items-center gap-2.5">
-        <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', t.chip)}>
-          <Icon className="size-4" aria-hidden />
+        <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg shadow-sm', t.chip)}>
+          <Icon className="size-[18px]" aria-hidden />
         </span>
-        <h3 className="text-sm font-medium text-muted-foreground">{label}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{label}</h3>
       </header>
 
       <div className="flex flex-col gap-2">
@@ -58,7 +110,7 @@ function Card({
           {share ? <span className="text-xs text-muted-foreground tabular">{share.text} das vendas</span> : null}
         </p>
         {share ? (
-          <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2" aria-hidden>
+          <div className={cn('h-1.5 w-full overflow-hidden rounded-full', t.track)} aria-hidden>
             <span
               className={cn('block h-full rounded-full', t.bar)}
               style={{ width: `${Math.min(100, Math.abs(share.ratio) * 100)}%` }}
@@ -68,7 +120,7 @@ function Card({
       </div>
 
       {details?.length ? (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3 sm:grid-cols-3">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-foreground/10 pt-3 sm:grid-cols-3">
           {details.map((d) => (
             <div key={d.label} className="flex min-w-0 flex-col gap-0.5">
               <dt className="truncate text-xs text-muted-foreground">{d.label}</dt>
@@ -89,14 +141,14 @@ function SplitBar({ s }: { s: ProfitReport['summary'] }) {
   const ads = s.adsApplies ? s.ads : 0
   const profit = s.contribution - ads
   const parts = [
-    { label: 'Custo do produto', value: s.cost, className: 'bg-foreground/70' },
-    { label: 'Tarifas e impostos', value: s.fees + s.taxes, className: 'bg-attention' },
-    { label: 'Frete', value: s.sellerShip, className: 'bg-muted-foreground/50' },
-    { label: 'Publicidade', value: ads, className: 'bg-info' },
+    { label: 'Custo do produto', value: s.cost, className: 'bg-kpi-costs/55' },
+    { label: 'Tarifas e impostos', value: s.fees + s.taxes, className: 'bg-kpi-costs' },
+    { label: 'Frete', value: s.sellerShip, className: 'bg-kpi-ship' },
+    { label: 'Publicidade', value: ads, className: 'bg-kpi-ads' },
     {
       label: profit >= 0 ? 'Lucro' : 'Prejuízo',
       value: Math.abs(profit),
-      className: profit >= 0 ? 'bg-positive' : 'bg-critical',
+      className: profit >= 0 ? 'bg-kpi-gain' : 'bg-kpi-loss',
     },
   ].filter((p) => p.value > 0)
   const total = parts.reduce((sum, p) => sum + p.value, 0)
@@ -142,7 +194,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           icon={ShoppingBag}
           label="Vendas válidas"
           value={formatBRL(s.sales)}
-          tone="neutral"
+          tone="sales"
           featured
           details={[
             { label: 'Total', value: formatBRL(s.gross) },
@@ -184,7 +236,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Margem de contribuição"
           value={formatBRL(s.contribution)}
           share={share(s.contribution)}
-          tone={s.contribution < 0 ? 'loss' : 'gain'}
+          tone={s.contribution < 0 ? 'loss' : 'margin'}
           note="Vendas menos custo, tarifas, impostos e frete."
         />
         <Card
@@ -206,7 +258,7 @@ export function ProfitSummary({ report }: { report: ProfitReport }) {
           label="Margem após Ads"
           value={s.adsApplies ? formatBRL(s.afterAds) : '—'}
           share={s.adsApplies ? share(s.afterAds) : undefined}
-          tone={!s.adsApplies ? 'ship' : s.afterAds < 0 ? 'loss' : 'gain'}
+          tone={!s.adsApplies ? 'idle' : s.afterAds < 0 ? 'loss' : 'gain'}
           note={s.adsApplies && s.afterAds < 0 ? 'O período deu prejuízo depois da publicidade.' : undefined}
         />
       </div>

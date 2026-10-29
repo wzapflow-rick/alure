@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Disclosure, EmptyState, PageHeader, Panel } from '@/components/ui/primitives'
 import { ProfitFiltersBar, buildPresets } from '@/components/profit/filters'
 import { ProfitSummary } from '@/components/profit/summary'
+import { AdjustmentsAccordion } from '@/components/profit/adjustments-accordion'
 import { DayTable, ProductTable } from '@/components/profit/tables'
 import { AdSpendForm, RefreshAdsButton, RefreshShippingButton, TaxRateForm } from '@/components/profit/settings-forms'
 import { getProfitReport, profitSchemaReady, type ProfitFilters } from '@/lib/profit/queries'
@@ -79,9 +80,9 @@ export default async function ProfitPage({
         </Panel>
       ) : null}
 
-      <Panel title="Lançamentos e ajustes">
-        <div className="flex flex-col gap-5 px-4 py-4 sm:px-5">
-          <Disclosure summary="Lançar investimento em Ads" defaultOpen={ready && report.summary.adsDays === 0}>
+      <AdjustmentsAccordion title="Lançamentos e ajustes">
+        <div className="contents">
+          <Disclosure summary="Lançar investimento em Ads" defaultOpen>
             <AdSpendForm from={from} to={to} />
           </Disclosure>
           <Disclosure summary={`Alíquota de imposto · ${report.taxRatePct.toLocaleString('pt-BR')}%`}>
@@ -98,7 +99,7 @@ export default async function ProfitPage({
             </ul>
           </Disclosure>
         </div>
-      </Panel>
+      </AdjustmentsAccordion>
     </div>
   )
 }
