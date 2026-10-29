@@ -113,7 +113,7 @@ export default async function CommandPage() {
           </h1>
         </div>
         <div className="flex items-center gap-3 md:pt-1">
-          <SearchTrigger className="w-full md:w-80" />
+          <SearchTrigger className="hidden md:flex md:w-80" />
           <RunEngineButton />
         </div>
       </header>

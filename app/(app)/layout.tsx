@@ -33,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <Sidebar userName={user.name || user.email} openAlerts={alerts.n} />
-      <main className="w-full min-w-0 flex-1 overflow-x-clip px-4 py-6 sm:px-6 md:px-12 md:py-14 lg:px-16">
+      <main className="w-full min-w-0 flex-1 overflow-x-clip px-4 pt-6 pb-[calc(var(--bottom-nav)+2rem)] sm:px-6 md:px-12 md:py-14 lg:px-16">
         <div className="mx-auto flex max-w-5xl animate-rise flex-col gap-8 md:gap-12">{children}</div>
       </main>
       <CommandPalette products={products} />

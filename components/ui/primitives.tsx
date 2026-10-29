@@ -84,7 +84,7 @@ export function Panel({
   id?: string
 }) {
   return (
-    <section id={id} className={cn('overflow-hidden rounded-xl border border-border bg-surface', className)}>
+    <section id={id} className={cn('overflow-hidden rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgb(6_22_40/0.05)]', className)}>
       {title ? (
         <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border px-4 py-3.5 sm:px-5">
           <h2 className="text-sm font-medium text-foreground">{title}</h2>

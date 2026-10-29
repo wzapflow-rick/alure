@@ -341,7 +341,7 @@ export function AssistantChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-background via-background to-background/0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-6 sm:mx-0 sm:px-0 sm:pb-4">
+      <div className="sticky bottom-[var(--bottom-nav)] z-10 -mx-4 bg-gradient-to-t from-background via-background to-background/0 px-3 pb-3 pt-6 sm:mx-0 sm:px-0 sm:pb-4">
         <form
           onSubmit={(e) => {
             e.preventDefault()

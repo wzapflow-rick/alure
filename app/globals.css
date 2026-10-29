@@ -3,15 +3,16 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f3f4f7;
-  --foreground: #161a23;
+  --background: #f2f4f7;
+  --foreground: #0d1b2a;
   --surface: #ffffff;
-  --surface-2: #e9ebf0;
-  --sidebar: #eceef2;
-  --border: #dfe2e8;
-  --muted-foreground: #5b6273;
-  --primary: #4f46e5;
+  --surface-2: #e8ecf1;
+  --sidebar: #061628;
+  --border: #dde3ea;
+  --muted-foreground: #56657a;
+  --primary: #0e7490;
   --primary-foreground: #ffffff;
+  --bottom-nav: calc(4rem + env(safe-area-inset-bottom));
   --critical: #d42a3c;
   --attention: #b45309;
   --positive: #15803d;
@@ -140,11 +141,31 @@
 }
 
 @utility eyebrow {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--muted-foreground);
+}
+
+@media (min-width: 768px) {
+  :root {
+    --bottom-nav: 0px;
+  }
+}
+
+/* Navigation chrome carries the ALURE navy + teal identity; content stays light. */
+.sidebar-dark {
+  --foreground: #e3ebf2;
+  --muted-foreground: #8ea2b7;
+  --surface: #0d2238;
+  --surface-2: #133049;
+  --border: #13304a;
+  --primary: #22b4cf;
+  --primary-foreground: #021018;
+  --attention: #f2a93b;
+  background-color: var(--sidebar);
+  color: var(--foreground);
+  color-scheme: dark;
 }
 
 /* Sign-in keeps the dark brand identity while the app runs on the light theme. */
