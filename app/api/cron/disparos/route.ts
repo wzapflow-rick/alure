@@ -2,10 +2,10 @@ import { after, NextResponse, type NextRequest } from 'next/server'
 import { isCronAuthorized } from '@/lib/cron-auth'
 import { runBroadcastTick } from '@/lib/broadcast/engine'
 
-export const maxDuration = 90
+export const maxDuration = 210
 
 /**
- * Called every minute by an external scheduler (cron-job.org). Each call sends at most a few
+ * Called every 3 minutes, Mon-Fri 08h-17h, by an external scheduler (cron-job.org). Each call sends at most a few
  * messages, always respecting the intervals saved in the database. Pass `&wait=1` to run inline.
  */
 export async function GET(request: NextRequest) {

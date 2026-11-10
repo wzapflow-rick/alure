@@ -9,8 +9,13 @@ import { resolveInstanceName } from '@/lib/notify/evolution'
 
 export { logEvent }
 
-/** One tick runs at most this long; the scheduler calls again every minute. */
-const TICK_BUDGET_MS = 50_000
+/**
+ * One tick runs at most this long; the scheduler calls again every 3 minutes. Sleeping between
+ * messages doesn't bill Active CPU, so fewer, longer ticks cost far less than one tick per minute.
+ */
+const TICK_BUDGET_MS = 170_000
+/** Must outlive TICK_BUDGET_MS so an overlapping call can't double a number's sending rate. */
+const TICK_LEASE_SECONDS = 195
 const MAX_SKIPS_PER_TICK = 25
 const NUMBER_CHECK_TTL_DAYS = 30
 const QUALITY_WINDOW = 20
@@ -483,16 +488,18 @@ export async function runBroadcastTick(): Promise<TickResult> {
   const leased: Ctx[] = []
   for (const row of active) {
     await pool.query(`INSERT INTO broadcast_settings (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, [row.id])
+    const s = await loadSettings(row.id)
+    if (s.paused_all || quarantineActive(s) || !insideWindow(s)) continue
     const lease = await pool.query(
-      `UPDATE broadcast_settings SET tick_lock_until = now() + interval '75 seconds', last_tick_at = now()
+      `UPDATE broadcast_settings SET tick_lock_until = now() + make_interval(secs => $2), last_tick_at = now()
         WHERE id = $1 AND (tick_lock_until IS NULL OR tick_lock_until < now())`,
-      [row.id],
+      [row.id, TICK_LEASE_SECONDS],
     )
     if (lease.rowCount) {
       leased.push({ companyId: row.company_id, instanceId: row.id, evo: resolveInstanceName(row.name), companyName: row.company_name })
     }
   }
-  if (!leased.length) return { ...result, status: 'busy' }
+  if (!leased.length) return { ...result, status: 'busy_or_outside_window' }
   result.numbers = leased.length
 
   const started = Date.now()
