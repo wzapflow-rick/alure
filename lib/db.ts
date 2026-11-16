@@ -35,7 +35,21 @@ function sslConfig(urlSslMode: string | null) {
   return { rejectUnauthorized: true }
 }
 
+// The server ends idle sessions (57P05 idle-session timeout), and a suspended instance
+// can hold a client past idleTimeoutMillis. pg emits that as an 'error' event; without
+// a listener Node treats it as an uncaught exception and kills the process mid-request.
+function logDroppedConnection(error: Error) {
+  console.error('[alure] database connection dropped:', error.message)
+}
+
 function createPool() {
+  const pool = buildPool()
+  pool.on('error', logDroppedConnection)
+  pool.on('connect', (client) => client.on('error', logDroppedConnection))
+  return pool
+}
+
+function buildPool() {
   const { connectionString, urlSslMode } = parseDatabaseUrl(process.env.DATABASE_URL)
   return new Pool({
     connectionString,
@@ -53,8 +67,11 @@ function createPool() {
 }
 
 function isConnectionError(error: unknown) {
+  if ((error as { code?: string })?.code === '57P05') return true
   const message = (error as Error)?.message ?? ''
-  return /timeout exceeded when trying to connect|Connection terminated|ECONNRESET|ECONNREFUSED/i.test(message)
+  return /timeout exceeded when trying to connect|Connection terminated|terminating connection|ECONNRESET|ECONNREFUSED/i.test(
+    message,
+  )
 }
 
 export const pool: Pool = globalThis.__alurePool ?? createPool()

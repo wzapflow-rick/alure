@@ -98,7 +98,12 @@ function slimAd(a: AdsItem) {
   }
 }
 
-export const maxDuration = 60
+// Tool-heavy answers (Ads paging + several model steps) regularly exceeded 60s, which
+// killed the function mid-stream and dropped the answer without saving it.
+export const maxDuration = 300
+
+const MAX_STEPS = 8
+const FRESHNESS_WAIT_MS = 8_000
 
 const textPartSchema = z.object({ type: z.literal('text'), text: z.string() })
 const filePartSchema = z.object({
@@ -681,7 +686,7 @@ export async function POST(req: Request) {
     )
     await saveMessage(conversationId, withoutBinary(userMessage))
     messages = [...history.map((m, i) => forModel(m, i >= history.length - 2)), userMessage]
-    const freshness = await safe(refreshTodayIfStale, [])
+    const freshness = await safe(() => refreshTodayIfStale({ waitLimitMs: FRESHNESS_WAIT_MS }), [])
     dbContext = await buildDatabaseContext(user, conversationId, freshness)
   } catch (err) {
     console.error('[alure] assistant setup failed:', err)
@@ -695,7 +700,9 @@ export async function POST(req: Request) {
       convertDataPart: (part) =>
         part.type === 'data-document' ? { type: 'text', text: documentToPrompt(part.data as DocumentData) } : undefined,
     }),
-    stopWhen: isStepCount(5),
+    stopWhen: isStepCount(MAX_STEPS),
+    // The last step must write the answer; otherwise a tool-only run ends with no text.
+    prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: 'none' as const } : undefined),
     maxOutputTokens: 6000,
     tools: buildTools(user, conversationId),
     providerOptions: {

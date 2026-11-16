@@ -254,7 +254,13 @@ export function AssistantChat({
       }),
     }),
     onError: (err) => setErrorText(err.message || 'Não foi possível responder agora. Tente novamente.'),
-    onFinish: () => {
+    onFinish: ({ message, isError, isDisconnect }) => {
+      const answered = message.role === 'assistant' && message.parts.some((p) => p.type === 'text' && p.text.trim())
+      if (isDisconnect) {
+        setErrorText('A conexão caiu antes da resposta terminar. Envie a pergunta de novo.')
+      } else if (!answered && !isError) {
+        setErrorText('O assistente consultou os dados mas não concluiu a resposta. Tente reformular ou dividir a pergunta.')
+      }
       router.replace(`/assistente?c=${conversationId}`, { scroll: false })
       router.refresh()
     },
