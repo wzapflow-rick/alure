@@ -10,6 +10,21 @@ const AUTH_URL = 'https://auth.mercadolivre.com.br/authorization'
 const API = 'https://api.mercadolibre.com'
 const PAGE = 50
 const MULTIGET = 20
+const ITEM_BULK_FIELDS = [
+  'id',
+  'title',
+  'price',
+  'permalink',
+  'status',
+  'available_quantity',
+  'seller_custom_field',
+  'attributes',
+  'catalog_listing',
+  'catalog_product_id',
+  'listing_type_id',
+  'category_id',
+  'shipping',
+]
 
 export function meliConfig() {
   const clientId = process.env.MELI_CLIENT_ID
@@ -185,14 +200,17 @@ export async function fetchListings(knownIds: string[] = []): Promise<Normalized
   const ids = [...found, ...extra]
 
   const listings: NormalizedListing[] = []
+  // /items?ids= was shut down on 2026-10-25 (403 ResourceDeprecated). /items/bulk renames
+  // `code` to `status_code` and requires the `body.` prefix on selected attributes.
+  const attributes = ITEM_BULK_FIELDS.map((f) => `body.${f}`).join(',')
   for (let i = 0; i < ids.length; i += MULTIGET) {
     const batch = ids.slice(i, i + MULTIGET).join(',')
-    const res = await apiGet<{ code: number; body: MeliItem }[]>(
-      `/items?ids=${batch}&attributes=id,title,price,permalink,status,available_quantity,seller_custom_field,attributes,catalog_listing,catalog_product_id,listing_type_id,category_id,shipping`,
+    const res = await apiGet<{ status_code?: number; code?: number; body?: MeliItem }[]>(
+      `/items/bulk?ids=${batch}&attributes=${attributes}`,
       conn.accessToken,
     )
-    for (const { code, body } of res) {
-      if (code !== 200 || !body) continue
+    for (const { status_code, code, body } of res) {
+      if ((status_code ?? code) !== 200 || !body) continue
       listings.push({
         externalListingId: body.id,
         sku: itemSku(body),
