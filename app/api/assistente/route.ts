@@ -102,7 +102,12 @@ function slimAd(a: AdsItem) {
 // killed the function mid-stream and dropped the answer without saving it.
 export const maxDuration = 300
 
-const MAX_STEPS = 8
+const MAX_STEPS = 25
+// Reasoning tokens count against the output cap; 6000 was exhausted by deep analyses
+// before any answer text was written.
+const MAX_OUTPUT_TOKENS = 64_000
+// Leaves room inside maxDuration for the final written answer after the research steps.
+const RESEARCH_BUDGET_MS = 210_000
 const FRESHNESS_WAIT_MS = 8_000
 
 const textPartSchema = z.object({ type: z.literal('text'), text: z.string() })
@@ -179,6 +184,12 @@ PUBLICIDADE (Product Ads do Mercado Livre)
 - Para qualquer pergunta sobre Ads, campanhas, ACOS, ROAS, TACOS, investimento ou verba: chame "publicidadeCampanhas" e, quando falar de produtos, "publicidadeAnuncios". Use "publicidadeCampanhaDetalhe" para diagnosticar uma campanha e "publicidadeHistorico" para tendência diária e TACOS.
 - NUNCA peça print ou exportação do painel de Publicidade. Só se a ferramenta retornar "erro", repasse a mensagem exata e diga como resolver.
 - Os dados do ML fecham às 10h (Brasília); o dia de hoje não entra nas métricas de Ads.
+
+PESQUISA PROFUNDA (quando pedirem análise profunda, "produto por produto", diagnóstico de queda, o que adicionar/retirar)
+- Não economize consultas: você tem várias etapas disponíveis. Faça a investigação completa antes de responder.
+- Roteiro: 1) "publicidadeCampanhas" em 30 e 90 dias para ver a tendência; 2) "publicidadeHistorico" para a queda diária e TACOS; 3) "publicidadeCampanhaDetalhe" em cada campanha ativa (parcela perdida por orçamento x ranking); 4) "publicidadeAnuncios" com limite alto (até 300) e ordenado por investimento e por receita, para cobrir todos os anúncios; 5) "maisVendidos" e "anuncios" para achar produtos que vendem bem no orgânico e NÃO estão no Ads (candidatos a adicionar).
+- Compare períodos (30d x 90d) para explicar a queda com números, não com suposições.
+- Entregue a lista completa, produto por produto, separada em: Adicionar, Manter, Ajustar (lance/orçamento) e Retirar — cada um com o motivo em números (ACOS, ROAS, CVR, investimento, vendas).
 
 MEMÓRIA
 - Tudo que é conversado fica salvo. Use "buscarConversas" quando o usuário se referir a algo já falado ("como eu disse", "aquele produto", "o que combinamos").
@@ -533,7 +544,7 @@ function buildTools(user: SessionUser, conversationId: string) {
         itemId: z.string().max(30).optional().describe('ID MLB do anúncio para detalhe de um item'),
         termo: z.string().max(80).optional(),
         ordenarPor: z.enum(['investimento', 'receita', 'acos', 'roas']).default('investimento'),
-        limite: z.number().int().min(1).max(100).default(30),
+        limite: z.number().int().min(1).max(300).default(50),
       }),
       execute: async ({ dias, campanhaId, itemId, termo, ordenarPor, limite }) => {
         try {
@@ -701,14 +712,24 @@ export async function POST(req: Request) {
         part.type === 'data-document' ? { type: 'text', text: documentToPrompt(part.data as DocumentData) } : undefined,
     }),
     stopWhen: isStepCount(MAX_STEPS),
-    // The last step must write the answer; otherwise a tool-only run ends with no text.
-    prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: 'none' as const } : undefined),
-    maxOutputTokens: 6000,
+    // The last step (by count or by time) must write the answer; otherwise a tool-only run ends with no text.
+    prepareStep: ({ stepNumber }) =>
+      stepNumber >= MAX_STEPS - 1 || Date.now() - startedAt > RESEARCH_BUDGET_MS
+        ? { toolChoice: 'none' as const }
+        : undefined,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
     tools: buildTools(user, conversationId),
     providerOptions: {
       openai: { reasoningEffort: 'medium', promptCacheKey: `alure-assistant-${user.id}` },
     },
     onFinish: async (event) => {
+      if (!event.text.trim()) {
+        console.warn('[alure] assistant finished without text:', {
+          finishReason: event.finishReason,
+          steps: event.steps.length,
+          outputTokens: event.totalUsage?.outputTokens,
+        })
+      }
       await recordUsage(prepared, {
         startedAt,
         usage: event.totalUsage,
